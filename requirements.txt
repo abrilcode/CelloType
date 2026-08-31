@@ -1,0 +1,35 @@
+# CelloType: Python dependencies.
+# Tested with Python 3.12 (Python 3.10 to 3.12 recommended).
+#
+# GPU note:
+#   NVIDIA: install the CUDA build of torch that matches your driver FIRST,
+#           from https://pytorch.org/get-started/locally/, then run
+#           pip install -r requirements.txt
+#   Apple Silicon: the default torch build uses the GPU (MPS) automatically.
+#   CPU only: it runs, but Cellpose segmentation is slow.
+#
+# Versions this was tested with: numpy 2.5.2, scipy 1.18.1, scikit-image 0.26.0,
+# tifffile 2026.8.23, cellpose 4.2.1.1, torch 2.13.0, pandas 3.0.5.
+
+# Web server
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
+
+# Numeric and imaging
+numpy>=2.0
+scipy>=1.13
+scikit-image>=0.24
+tifffile>=2024.7
+aicspylibczi>=4.0
+Pillow>=10.3
+
+# Segmentation (Cellpose-SAM downloads about 1.2 GB of model weights on first run)
+cellpose>=4.0
+torch>=2.1
+
+# Measurement, plots, export
+pandas>=2.2
+matplotlib>=3.8
+seaborn>=0.13
+fpdf2>=2.7

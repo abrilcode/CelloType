@@ -1,0 +1,349 @@
+"""
+Stage 1 file loading.
+
+Reads one microscopy file into a normalized in-memory representation:
+a list of 2D channel arrays (native bit depth) plus metadata. Supports
+CZI, TIFF (single- and multi-channel), and PNG/JPEG.
+
+Design rules:
+- Never guess silently. If a file cannot be read as a valid image, raise
+  LoadError with an actionable message so the caller can reject it.
+- Channels are kept at native bit depth (measurement happens on these later).
+- PNG/JPEG are accepted but marked non-quantitative (8-bit / lossy).
+"""
+
+from __future__ import annotations
+
+import base64
+import io
+import os
+from dataclasses import dataclass, field
+from typing import List
+
+import numpy as np
+
+SUPPORTED_EXTS = {".czi", ".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+
+
+class LoadError(Exception):
+    """Raised when a file cannot be read as a valid image."""
+
+
+@dataclass
+class LoadedImage:
+    fmt: str                       # "czi" | "tiff" | "png" | "jpeg"
+    channels: List[np.ndarray]     # each a 2D array, native dtype
+    names: List[str]               # channel names (metadata or generic)
+    width: int
+    height: int
+    dtype: str
+    bit_depth: int
+    quantitative: bool             # False for 8-bit/lossy display formats
+    colors: List = field(default_factory=list)   # per-channel display color (hex) or None
+    warnings: List[str] = field(default_factory=list)
+
+    @property
+    def n_channels(self) -> int:
+        return len(self.channels)
+
+
+def bit_depth_of(dtype: np.dtype) -> int:
+    dt = np.dtype(dtype)
+    if dt == np.uint8:
+        return 8
+    if dt == np.uint16:
+        return 16
+    if dt == np.uint32:
+        return 32
+    if dt.kind == "f":
+        return 32
+    return dt.itemsize * 8
+
+
+def ext_of(path: str) -> str:
+    return os.path.splitext(path)[1].lower()
+
+
+def load_file(path: str) -> LoadedImage:
+    """Read a file into a LoadedImage. Raises LoadError on anything unreadable."""
+    ext = ext_of(path)
+    if ext not in SUPPORTED_EXTS:
+        raise LoadError(f"Unsupported format '{ext}'. Accepted: {sorted(SUPPORTED_EXTS)}")
+    try:
+        if ext == ".czi":
+            return _load_czi(path)
+        if ext in (".tif", ".tiff"):
+            return _load_tiff(path)
+        return _load_pil(path)  # png / jpg / jpeg
+    except LoadError:
+        raise
+    except Exception as e:  # any decoder failure -> actionable reject
+        raise LoadError(f"Could not read file: {e}")
+
+
+# ---------------------------------------------------------------- CZI
+
+def _load_czi(path: str) -> LoadedImage:
+    from aicspylibczi import CziFile
+
+    czi = CziFile(path)
+    data, shape = czi.read_image()   # ndarray + [(dim_char, size), ...]
+    dims = [d for d, _ in shape]
+
+    # Collapse every non-CYX axis by taking index 0 (single scene/tile/z).
+    arr = data
+    keep = {"C", "Y", "X"}
+    axis = 0
+    for d in list(dims):
+        if d in keep:
+            axis += 1
+            continue
+        arr = np.take(arr, 0, axis=axis)
+        dims.remove(d)
+    # arr now has axes among C, Y, X in original order
+    if "C" in dims:
+        c_axis = dims.index("C")
+        arr = np.moveaxis(arr, c_axis, 0)
+        channels = [np.asarray(arr[i]) for i in range(arr.shape[0])]
+    else:
+        channels = [np.asarray(arr)]
+
+    if all(int(c.max()) == 0 for c in channels):
+        raise LoadError(
+            "CZI decoded to all zeros (compression not decodable here). "
+            "Re-export as OME-TIFF from ZEN/Fiji and upload that."
+        )
+
+    names, colors = _czi_channels_meta(czi, len(channels))
+    h, w = channels[0].shape[:2]
+    return LoadedImage(
+        fmt="czi",
+        channels=channels,
+        names=names,
+        width=int(w),
+        height=int(h),
+        dtype=str(channels[0].dtype),
+        bit_depth=bit_depth_of(channels[0].dtype),
+        quantitative=True,
+        colors=colors,
+    )
+
+
+def _czi_channels_meta(czi, n: int):
+    """Pull dye names and display colors from CZI metadata, aligned per channel."""
+    names: List[str] = []
+    colors: List = []
+    seen = set()
+    try:
+        for ch in czi.meta.iter("Channel"):
+            dye = ch.findtext("DyeName") or ch.findtext("Fluor") or ch.get("Name")
+            col = ch.findtext("Color")  # e.g. "#FFFF0000" (AARRGGBB)
+            key = (dye, col)
+            if dye and key not in seen:
+                seen.add(key)
+                names.append(dye.strip())
+                colors.append(col)
+    except Exception:
+        names, colors = [], []
+    while len(names) < n:
+        names.append(f"Channel {len(names) + 1}")
+        colors.append(None)
+    return names[:n], colors[:n]
+
+
+# ---------------------------------------------------------------- TIFF
+
+def _load_tiff(path: str) -> LoadedImage:
+    import tifffile
+
+    with tifffile.TiffFile(path) as tf:
+        series = tf.series[0]
+        axes = series.axes            # e.g. "YX", "CYX", "YXC", "ZCYX"
+        arr = series.asarray()
+
+    channels = _split_by_axes(arr, axes)
+    h, w = channels[0].shape[:2]
+    return LoadedImage(
+        fmt="tiff",
+        channels=channels,
+        names=[f"Channel {i + 1}" for i in range(len(channels))],
+        width=int(w),
+        height=int(h),
+        dtype=str(channels[0].dtype),
+        bit_depth=bit_depth_of(channels[0].dtype),
+        quantitative=True,
+        colors=[None] * len(channels),
+    )
+
+
+def _split_by_axes(arr: np.ndarray, axes: str) -> List[np.ndarray]:
+    """Reduce a TIFF array to a list of 2D channel planes using its axes string."""
+    axes = axes.upper()
+    if arr.ndim == 2:
+        return [np.asarray(arr)]
+
+    # Collapse any Z/T/etc. (not C/S/Y/X) by taking index 0.
+    a = arr
+    ax = list(axes)
+    i = 0
+    while i < len(ax):
+        if ax[i] in ("Y", "X", "C", "S", "I", "Q"):
+            i += 1
+            continue
+        a = np.take(a, 0, axis=i)
+        ax.pop(i)
+
+    # Find the channel-like axis.
+    ch_axis = None
+    for cand in ("C", "S", "I", "Q"):
+        if cand in ax:
+            ch_axis = ax.index(cand)
+            break
+    if ch_axis is None:
+        if a.ndim == 2:
+            return [np.asarray(a)]
+        # 3D with no labeled channel axis: assume smallest non-YX axis is channels
+        ch_axis = 0
+    a = np.moveaxis(a, ch_axis, 0)
+    return [np.asarray(a[i]) for i in range(a.shape[0])]
+
+
+# ---------------------------------------------------------------- PNG / JPEG
+
+def _load_pil(path: str) -> LoadedImage:
+    from PIL import Image
+
+    im = Image.open(path)
+    im.load()
+    ext = ext_of(path)
+    fmt = "jpeg" if ext in (".jpg", ".jpeg") else "png"
+
+    if im.mode in ("L", "I", "I;16", "F"):
+        arr = np.asarray(im)
+        channels = [arr]
+        names = ["Gray"]
+        colors = [None]
+    else:
+        rgb = im.convert("RGB")
+        arr = np.asarray(rgb)  # H,W,3
+        channels = [arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]]
+        names = ["Red", "Green", "Blue"]
+        colors = ["#FF0000", "#00FF00", "#0000FF"]
+
+    h, w = channels[0].shape[:2]
+    return LoadedImage(
+        fmt=fmt,
+        channels=[np.asarray(c) for c in channels],
+        names=names,
+        width=int(w),
+        height=int(h),
+        dtype=str(channels[0].dtype),
+        bit_depth=bit_depth_of(channels[0].dtype),
+        quantitative=False,   # 8-bit / lossy: not measurement-grade
+        colors=colors,
+        warnings=["Display image (8-bit/lossy): intensities are not quantitative."],
+    )
+
+
+# ---------------------------------------------------------------- previews
+
+def preview_png_b64(arr: np.ndarray, max_side: int = 512) -> str:
+    """Percentile-stretch a channel to 8-bit and return a small base64 PNG."""
+    from PIL import Image
+
+    a = np.asarray(arr).astype(np.float32)
+    lo, hi = np.percentile(a, 1), np.percentile(a, 99)
+    if hi <= lo:
+        hi = lo + 1.0
+    a = np.clip((a - lo) / (hi - lo), 0, 1)
+    a8 = (a * 255).astype(np.uint8)
+
+    im = Image.fromarray(a8)
+    if max(im.size) > max_side:
+        scale = max_side / max(im.size)
+        im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))))
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+# ---------------------------------------------------------------- colors
+
+_DEFAULT_PALETTE = [
+    (0, 90, 255), (0, 220, 0), (255, 40, 0),
+    (255, 0, 220), (0, 220, 220), (255, 210, 0),
+]
+
+
+def hex_to_rgb(h):
+    if not h:
+        return None
+    h = str(h).lstrip("#")
+    if len(h) == 8:      # AARRGGBB -> drop alpha
+        h = h[2:]
+    if len(h) != 6:
+        return None
+    try:
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return None
+
+
+def dye_color(name):
+    """Conventional microscopy color for a fluorophore/marker name, or None."""
+    n = (name or "").upper()
+
+    def has(*ks):
+        return any(k in n for k in ks)
+
+    if has("DAPI", "HOECHST"):
+        return (0, 90, 255)
+    if has("647", "CY5", "APC", "640", "633"):
+        return (255, 0, 120)
+    if has("594", "555", "568", "CY3", "TRITC", "MCHERRY", "RFP"):
+        return (255, 60, 0)
+    if has("PE"):
+        return (255, 170, 0)
+    if has("488", "FITC", "GFP"):
+        return (0, 220, 0)
+    return None
+
+
+def resolve_color(hex_color, name, idx):
+    """Pick an RGB color: metadata hex first, then dye-name, then default palette."""
+    rgb = hex_to_rgb(hex_color)
+    if rgb:
+        return rgb
+    d = dye_color(name)
+    if d:
+        return d
+    return _DEFAULT_PALETTE[idx % len(_DEFAULT_PALETTE)]
+
+
+def composite_png_b64(arrays, rgb_colors, max_side: int = 640) -> str:
+    """Merge channels into one RGB image using each channel's color (the 'original' view)."""
+    from PIL import Image
+
+    h, w = np.asarray(arrays[0]).shape[:2]
+    acc = np.zeros((h, w, 3), np.float32)
+    for arr, (r, g, b) in zip(arrays, rgb_colors):
+        a = np.asarray(arr).astype(np.float32)
+        if np.asarray(arr).dtype == np.uint8:
+            norm = a / 255.0                      # true 8-bit display (RGB photos)
+        else:
+            lo, hi = np.percentile(a, 1), np.percentile(a, 99)
+            if hi <= lo:
+                hi = lo + 1.0
+            norm = np.clip((a - lo) / (hi - lo), 0, 1)
+        acc[..., 0] += norm * (r / 255.0)
+        acc[..., 1] += norm * (g / 255.0)
+        acc[..., 2] += norm * (b / 255.0)
+
+    acc = np.clip(acc, 0, 1)
+    im = Image.fromarray((acc * 255).astype(np.uint8), "RGB")
+    if max(im.size) > max_side:
+        scale = max_side / max(im.size)
+        im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))))
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()

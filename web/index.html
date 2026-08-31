@@ -1,0 +1,1593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CelloType</title>
+<link rel="stylesheet" href="/static/app.css?v=3">
+</head>
+<body>
+
+<header id="topbar">
+  <span class="brand">CelloType</span>
+  <span class="brand-sub">Fluorescence Image Analysis</span>
+  <span class="spacer"></span>
+  <span id="device-chip" class="hidden"></span>
+  <button id="restart" class="quiet hidden">Start over</button>
+  <button id="theme-toggle" class="quiet">Dark</button>
+</header>
+
+<nav id="steps" class="hidden"></nav>
+
+<main id="main" class="no-steps">
+
+  <!-- Step 0: single vs multiple -->
+  <section id="choice" class="start">
+    <h1>New analysis</h1>
+    <p class="lead">Segment objects, measure every channel inside each object, compare conditions.</p>
+    <div class="tiles">
+      <button class="tile" id="pick-single">
+        <span class="t">Single image</span>
+        <span class="d">One field. Pick the channel to segment, review the objects, measure them.</span>
+      </button>
+      <button class="tile" id="pick-multiple">
+        <span class="t">Multiple images</span>
+        <span class="d">Fields grouped by condition, segmented on one shared channel, compared.</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ single image flow -->
+  <section id="single" class="hidden">
+
+    <div id="uploader" data-step="image" class="panel">
+      <div class="panel-head"><h2>Raw data</h2></div>
+      <input type="file" id="files" class="hidden" multiple accept=".czi,.tif,.tiff,.png,.jpg,.jpeg">
+      <div class="drop" id="drop-single">
+        <span class="dt">Drop the image here, or click to choose</span>
+        <span class="dm">czi &middot; tif &middot; tiff &middot; png &middot; jpg &middot; jpeg</span>
+      </div>
+      <div id="filelist-single" class="filelist"></div>
+      <p class="rules">One multichannel file, or the single channel files of one field named
+        <code>name-MARKER.ext</code>, for example <code>sample-DAPI.tif</code>.</p>
+      <div id="upmsg"></div>
+      <div class="rowend">
+        <button id="go" class="primary" disabled>Upload</button>
+        <span id="busy" class="loading hidden"><span class="prog run"><i></i></span><span class="meta">reading files</span></span>
+      </div>
+    </div>
+
+    <div id="workspace" class="hidden" data-step="segment">
+      <div class="controls">
+        <div class="block">
+          <h3>View</h3>
+          <div id="viewlist"></div>
+          <div class="actionrow"><button id="view-btn" class="sm hidden">Display and contrast</button></div>
+        </div>
+        <div class="block">
+          <h3>Segment</h3>
+          <div id="segpick"></div>
+          <div id="seg-note" class="note"></div>
+          <div class="actionrow">
+            <button id="continue" class="primary" disabled>Segment</button>
+            <button id="edit-seg" class="sm hidden">Edit</button>
+          </div>
+          <div id="msgs"></div>
+        </div>
+        <div class="block">
+          <div id="bg-sub-single-wrap" class="hidden">
+            <label><input type="checkbox" id="bg-sub-single"> Subtract background</label>
+          </div>
+          <div class="actionrow"><button id="measure-btn" class="primary hidden">Measure</button></div>
+          <div class="rowend"><button class="back">Back</button></div>
+        </div>
+      </div>
+      <div class="viewer">
+        <div id="caption"></div>
+        <img id="bigimg" alt="">
+      </div>
+    </div>
+
+    <div id="single-ctx" class="ctxbar hidden" data-step="measure,plot"></div>
+
+    <div id="measure-panel" data-step="measure" class="panel">
+      <div class="panel-head"><h2>Measurements</h2><span id="measure-meta" class="meta"></span></div>
+      <div id="measure-out"></div>
+      <div class="rowend">
+        <button class="back">Back</button>
+        <button id="to-plot" class="primary hidden">Plot distributions</button>
+      </div>
+    </div>
+
+    <div id="plot-panel" data-step="plot" class="panel">
+      <div class="panel-head"><h2>Distributions</h2><span class="meta">one panel per channel</span></div>
+      <div id="single-plot-out"></div>
+      <div class="rowend"><button class="back">Back</button></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------- multiple images flow -->
+  <section id="multiple" class="hidden">
+
+    <div id="muploader" data-step="images" class="panel">
+      <div class="panel-head"><h2>Raw data</h2></div>
+      <input type="file" id="mfiles" class="hidden" multiple accept=".czi,.tif,.tiff,.png,.jpg,.jpeg">
+      <div class="drop" id="drop-batch">
+        <span class="dt">Drop the images here, or click to choose</span>
+        <span class="dm">czi &middot; tif &middot; tiff &middot; png &middot; jpg &middot; jpeg</span>
+      </div>
+      <div id="filelist-batch" class="filelist"></div>
+      <p class="rules">Name files <code>condition-Foto&lt;n&gt;-marker.ext</code>, for example
+        <code>FN-D0-Foto1-DAPI.tif</code>, or one multichannel file per field
+        (<code>FN-D0-Foto1.czi</code>). Files sharing a name become one field.</p>
+      <div id="mupmsg"></div>
+      <div class="rowend">
+        <button id="mgo" class="primary" disabled>Upload</button>
+        <span id="mbusy" class="loading hidden"><span class="prog run"><i></i></span><span class="meta">reading files</span></span>
+      </div>
+    </div>
+
+    <div id="mworkspace" class="hidden">
+
+      <div id="images-panel" data-step="images" class="panel">
+        <div class="panel-head"><h2>Raw data</h2><span id="images-count" class="meta"></span></div>
+        <div class="block">
+          <h3>Conditions</h3>
+          <div id="condsummary"></div>
+          <p class="note">Condition is the axis you compare. Replicate is the field number
+            (<code>Foto&lt;n&gt;</code>) inside that condition. Click a thumbnail to inspect the channels.</p>
+        </div>
+        <div id="btable"></div>
+        <div id="mrejected"></div>
+        <div id="maddmsg"></div>
+        <div class="rowend">
+          <button id="to-channels" class="primary" disabled>Continue</button>
+          <button id="maddbtn">Add images</button>
+          <button id="mremovesel" disabled>Remove selected</button>
+          <span id="sel-count" class="meta"></span>
+          <input type="file" id="maddfiles" class="hidden" multiple accept=".czi,.tif,.tiff,.png,.jpg,.jpeg">
+          <span id="maddbusy" class="loading hidden"><span class="prog run"><i></i></span><span class="meta">adding</span></span>
+        </div>
+      </div>
+
+      <div id="channels-panel" data-step="channels" class="panel"></div>
+      <div id="segment-panel" data-step="segment" class="panel"></div>
+      <div id="measure-panel-b" data-step="measure" class="panel"></div>
+      <div id="analyze-panel" data-step="analyze" class="panel"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Inspect one image at a time: browse the dataset, see each channel -->
+<div id="inspector" class="surface">
+  <div class="insp-head">
+    <strong id="insp-title"></strong>
+    <span id="insp-pos" class="meta"></span>
+    <span class="spacer" style="flex:1"></span>
+    <button id="insp-prev" class="sm">Previous</button>
+    <button id="insp-next" class="sm">Next</button>
+    <span class="bar-sep"></span>
+    <button id="insp-close" class="sm">Close</button>
+  </div>
+  <div class="insp-body">
+    <div class="insp-side">
+      <h3>Channels</h3>
+      <div id="insp-views"></div>
+      <div id="insp-meta" class="meta" style="margin-top:14px"></div>
+    </div>
+    <div class="insp-view"><img id="insp-img" alt=""></div>
+  </div>
+</div>
+
+<!-- Mask editor -->
+<div id="editor" class="surface">
+  <div class="ed-bar">
+    <strong>Edit segmentation</strong>
+    <span id="ed-count"></span>
+    <span id="ed-pos" class="meta"></span>
+    <span style="flex:1"></span>
+    <button id="ed-remove" class="sm">Remove</button>
+    <button id="ed-draw" class="sm">Draw outline</button>
+    <span class="bar-sep"></span>
+    <button id="ed-pan" class="sm">Pan</button>
+    <button id="ed-fit" class="sm">Fit</button>
+    <button id="ed-undo" class="sm">Undo</button>
+    <span class="bar-sep nav-sep"></span>
+    <button id="ed-prev" class="sm">Previous</button>
+    <button id="ed-next" class="sm">Next</button>
+    <span class="bar-sep"></span>
+    <button id="ed-cancel" class="sm">Cancel</button>
+    <button id="ed-save" class="sm primary">Save</button>
+  </div>
+  <div class="ed-stage" id="ed-stage"><canvas id="ed-canvas"></canvas></div>
+</div>
+
+<!-- Display viewer: channels in chosen colours + segmentation overlay -->
+<div id="viewer" class="surface">
+  <div class="insp-head">
+    <strong>Display</strong>
+    <span id="vw-title" class="meta"></span>
+    <span style="flex:1"></span>
+    <button id="vw-prev" class="sm">Previous</button>
+    <button id="vw-next" class="sm">Next</button>
+    <span class="bar-sep"></span>
+    <button id="vw-close" class="sm">Close</button>
+  </div>
+  <div class="insp-body">
+    <div class="insp-side">
+      <div id="vw-channels"></div>
+      <div id="vw-seg" style="margin-top:16px"></div>
+    </div>
+    <div class="insp-view"><img id="vw-img" alt=""></div>
+  </div>
+</div>
+
+<div id="lightbox"><img alt=""></div>
+<script src="/static/editor.js?v=9"></script>
+
+<script>
+const $ = s => document.querySelector(s);
+const ALLOWED = [".czi", ".tif", ".tiff", ".png", ".jpg", ".jpeg"];
+const extOf = n => { const i = n.lastIndexOf("."); return i < 0 ? "" : n.slice(i).toLowerCase(); };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const pad2 = n => String(n).padStart(2, "0");
+
+// dark mode (persisted)
+(function initTheme() {
+  const btn = $("#theme-toggle");
+  const apply = (dark) => {
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    if (btn) btn.textContent = dark ? "Light" : "Dark";
+    try { localStorage.setItem("pfcv2-dark", dark ? "1" : "0"); } catch (e) {}
+  };
+  let dark = false; try { dark = localStorage.getItem("pfcv2-dark") === "1"; } catch (e) {}
+  apply(dark);
+  if (btn) btn.onclick = () => apply(document.documentElement.getAttribute("data-theme") !== "dark");
+})();
+
+// ---------------------------------------------------------------- step flow
+// One panel per step. Panels carry data-step; Flow shows the current one and
+// keeps the step bar in sync. Steps unlock as their input becomes available.
+const Flow = (() => {
+  const DEFS = {
+    single: [
+      { id: "image",   label: "Raw data" },
+      { id: "segment", label: "Segment" },
+      { id: "measure", label: "Measure" },
+      { id: "plot",    label: "Plot" },
+    ],
+    multiple: [
+      { id: "images",   label: "Raw data" },
+      { id: "channels", label: "Channels" },
+      { id: "segment",  label: "Segment" },
+      { id: "measure",  label: "Measure" },
+      { id: "analyze",  label: "Analysis" },
+    ],
+  };
+  let mode = null, cur = null, open = new Set();
+
+  function render() {
+    const nav = $("#steps");
+    if (!mode) { nav.classList.add("hidden"); nav.innerHTML = ""; return; }
+    nav.classList.remove("hidden");
+    nav.innerHTML = DEFS[mode].map((s, i) => {
+      const cls = s.id === cur ? "is-active" : open.has(s.id) ? "is-done" : "is-todo";
+      return (i ? `<span class="step-link"></span>` : "")
+        + `<button class="step ${cls}" data-go="${s.id}"><span class="n">${pad2(i + 1)}</span>${esc(s.label)}</button>`;
+    }).join("");
+    nav.querySelectorAll(".step").forEach(b => b.onclick = () => go(b.dataset.go));
+  }
+  function paint() {
+    const scope = mode === "single" ? "#single" : "#multiple";
+    document.querySelectorAll(scope + " [data-step]").forEach(p =>
+      p.classList.toggle("step-off", p.dataset.step.split(",").indexOf(cur) < 0));
+    window.scrollTo(0, 0);
+  }
+  function start(m) {
+    mode = m; open = new Set([DEFS[m][0].id]); cur = DEFS[m][0].id;
+    $("#main").classList.remove("no-steps");
+    $("#restart").classList.remove("hidden");
+    render(); paint();
+  }
+  function stop() {
+    mode = null; cur = null; open = new Set();
+    $("#main").classList.add("no-steps");
+    $("#restart").classList.add("hidden");
+    render();
+  }
+  function enable(id) { open.add(id); render(); }
+  function go(id) { if (mode && open.has(id)) { cur = id; render(); paint(); } }
+  function back() {
+    if (!mode) return;
+    const ids = DEFS[mode].map(s => s.id), i = ids.indexOf(cur);
+    if (i > 0) go(ids[i - 1]);
+  }
+  return { start, stop, enable, go, back, at: () => cur };
+})();
+
+// every "Back" button steps one panel back, wherever it was rendered
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest(".back");
+  if (b) Flow.back();
+});
+
+// ---------------------------------------------------------------- helpers
+function downloadText(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+
+function fileSummary(files) {
+  const a = Array.from(files || []);
+  if (!a.length) return "";
+  const shown = a.slice(0, 8).map(f => `<li>${esc(f.name)}</li>`).join("");
+  const more = a.length > 8 ? `<li>and ${a.length - 8} more</li>` : "";
+  return `<div class="meta">${a.length} file${a.length > 1 ? "s" : ""} selected</div><ul>${shown}${more}</ul>`;
+}
+
+// click or drag and drop, both feed the same file input
+function wireDrop(dropSel, inputSel) {
+  const d = $(dropSel), inp = $(inputSel);
+  d.onclick = () => inp.click();
+  ["dragenter", "dragover"].forEach(ev => d.addEventListener(ev, e => { e.preventDefault(); d.classList.add("over"); }));
+  ["dragleave", "dragend"].forEach(ev => d.addEventListener(ev, e => { e.preventDefault(); d.classList.remove("over"); }));
+  d.addEventListener("drop", e => {
+    e.preventDefault(); d.classList.remove("over");
+    if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+    inp.files = e.dataTransfer.files;
+    inp.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+wireDrop("#drop-single", "#files");
+wireDrop("#drop-batch", "#mfiles");
+
+function openLightbox(src) { const lb = $("#lightbox"); lb.querySelector("img").src = src; lb.style.display = "flex"; }
+$("#lightbox").addEventListener("click", () => { $("#lightbox").style.display = "none"; });
+
+// moving progress bar: indeterminate by default, determinate when a share is given
+function loadingHTML(label, share) {
+  const w = share == null ? 0 : Math.round(share * 100);
+  return `<div class="loading"><span class="prog run"><i style="width:${w}%"></i></span>`
+       + `<span class="meta">${esc(label)}</span></div>`;
+}
+
+// plot palettes come from the backend so both stay in sync, grouped in the dropdown
+let PALETTES = [{ name: "vivid", group: "Saturated" }];
+let PALETTE_DEFAULT = "vivid";
+function paletteOpts() {
+  let out = "", group = null;
+  PALETTES.forEach(p => {
+    if (p.group !== group) {
+      if (group !== null) out += `</optgroup>`;
+      group = p.group;
+      out += `<optgroup label="${esc(group)}">`;
+    }
+    out += `<option ${p.name === PALETTE_DEFAULT ? "selected" : ""}>${esc(p.name)}</option>`;
+  });
+  return out + (group !== null ? `</optgroup>` : "");
+}
+fetch("/api/palettes").then(r => r.json()).then(d => {
+  if (d.palettes && d.palettes.length) PALETTES = d.palettes;
+  if (d.default) PALETTE_DEFAULT = d.default;
+}).catch(() => {});
+
+function fmtSecs(s) {
+  s = Math.round(s);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+// text columns stay left aligned, everything else is a number
+const TEXTCOLS = new Set(["image", "condition", "channel"]);
+
+function renderMeasure(sel, r, filename) {
+  const box = $(sel);
+  const st = { by: "", desc: false, preview: r.preview, csv: r.csv };
+  const draw = () => {
+    const sortCtl = r.result_token
+      ? `<label class="inline">Sort by <select class="sortby">${["", ...r.columns].map(c => `<option value="${esc(c)}" ${c === st.by ? "selected" : ""}>${c ? esc(c) : "file order"}</option>`).join("")}</select></label>`
+        + `<label class="inline"><input type="checkbox" class="sortdesc" ${st.desc ? "checked" : ""}> descending</label>` : "";
+    let h = `<div class="actionrow"><button class="dlcsv primary">Download CSV</button>${sortCtl}
+             <span class="meta" style="margin-left:auto">${r.nrows} rows, showing ${Math.min(r.nrows, st.preview.length)}</span></div>`;
+    h += `<div class="tablewrap"><table class="batch"><thead><tr>`;
+    r.columns.forEach(c => h += `<th class="${TEXTCOLS.has(c) ? "" : "num"}">${esc(c)}</th>`);
+    h += `</tr></thead><tbody>`;
+    st.preview.forEach(row => {
+      h += `<tr>`;
+      r.columns.forEach(c => h += `<td class="${TEXTCOLS.has(c) ? "" : "num"}">${esc(row[c] ?? "")}</td>`);
+      h += `</tr>`;
+    });
+    h += `</tbody></table></div>`;
+    box.innerHTML = h;
+    box.querySelector(".dlcsv").onclick = () => downloadText(filename, st.csv);
+    const sb = box.querySelector(".sortby"), sd = box.querySelector(".sortdesc");
+    if (sb) {
+      const resort = async () => {
+        st.by = sb.value; st.desc = sd.checked;
+        if (!st.by) { st.preview = r.preview; st.csv = r.csv; draw(); return; }
+        const fd = new FormData();
+        fd.append("result_token", r.result_token);
+        fd.append("columns", JSON.stringify(r.columns));
+        fd.append("sort_by", JSON.stringify([st.by]));
+        fd.append("desc", st.desc ? "true" : "false");
+        const rr = await (await fetch("/api/measure_table", { method: "POST", body: fd })).json();
+        if (!rr.error) { st.preview = rr.preview; st.csv = rr.csv; }
+        draw();
+      };
+      sb.onchange = resort; sd.onchange = resort;
+    }
+  };
+  draw();
+}
+
+// metric columns offered in the plot builders
+function metricsOf(columns) {
+  const META = ["image", "condition", "replicate", "object_id", "channel"];
+  const NONMETRIC = new Set(["centroid_x", "centroid_y", "com_x", "com_y", "bbox_x", "bbox_y", "stack_position"]);
+  let m = (columns || []).filter(c => !META.includes(c) && !NONMETRIC.has(c));
+  if (m.includes("mean_intensity")) { m = m.filter(x => x !== "mean_intensity"); m.unshift("mean_intensity"); }
+  return m;
+}
+
+// Single image plot: per-channel distribution of the measured metric.
+function singlePlotPanel(r) {
+  const metrics = metricsOf(r.columns);
+  $("#single-plot-out").innerHTML = `
+    <div class="plot-wrap">
+      <div class="plot-controls">
+        <label>Metric <select id="single-metric">${metrics.map(m => `<option>${esc(m)}</option>`).join("")}</select></label>
+        <label>Plot style <select id="single-style"><option value="violin">Violin</option><option value="box">Box</option></select></label>
+        <label>Palette <select id="single-palette">${paletteOpts()}</select></label>
+        <label><input type="checkbox" id="single-log2"> log2 y axis</label>
+      </div>
+      <div class="plot-preview">
+        <div id="single-fig" class="plot-fig"></div>
+        <div id="single-dl" class="meta" style="margin-top:8px"></div>
+      </div>
+    </div>`;
+  const doSinglePlot = async () => {
+    $("#single-fig").innerHTML = loadingHTML("plotting");
+    const fd = new FormData();
+    fd.append("result_token", r.result_token);
+    fd.append("value", $("#single-metric").value);
+    fd.append("style", $("#single-style").value);
+    fd.append("palette", $("#single-palette").value);
+    fd.append("x", "condition");
+    fd.append("log2", $("#single-log2").checked ? "true" : "false");
+    const pr = await (await fetch("/api/batch/plot", { method: "POST", body: fd })).json();
+    if (pr.error) { $("#single-fig").innerHTML = `<p class="flag">${esc(pr.error)}</p>`; $("#single-dl").innerHTML = ""; return; }
+    $("#single-fig").innerHTML = `<img class="cmpimg" src="${pr.figure}" alt="">`;
+    $("#single-dl").innerHTML = `<a download="distributions.png" href="${pr.figure}">Download plot</a>`;
+    const im = $("#single-fig .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
+  };
+  const deb = debounce(doSinglePlot, 200);
+  ["single-metric", "single-style", "single-palette", "single-log2"].forEach(id => { const e = $("#" + id); if (e) e.onchange = deb; });
+  doSinglePlot();
+}
+
+// ---------------------------------------------------------------- single flow
+let FIELD = null;
+let SINGLE_TOKEN = null;   // server session for the single image
+let SEG_OVERLAY = null;    // segmentation overlay data-uri
+let SINGLE_NAME = "image";
+let GPU_OK = true;
+
+$("#pick-single").onclick = () => {
+  $("#choice").classList.add("hidden"); $("#single").classList.remove("hidden"); Flow.start("single");
+};
+$("#pick-multiple").onclick = () => {
+  $("#choice").classList.add("hidden"); $("#multiple").classList.remove("hidden"); Flow.start("multiple");
+};
+$("#restart").onclick = () => {
+  toUploader(); mToUploader();
+  $("#single").classList.add("hidden"); $("#multiple").classList.add("hidden");
+  $("#choice").classList.remove("hidden");
+  Flow.stop();
+};
+
+function toUploader() {
+  FIELD = null; SINGLE_TOKEN = null; SEG_OVERLAY = null;
+  $("#workspace").classList.add("hidden");
+  $("#uploader").classList.remove("hidden");
+  $("#files").value = ""; $("#go").disabled = true;
+  $("#upmsg").innerHTML = ""; $("#filelist-single").innerHTML = "";
+  $("#measure-out").innerHTML = ""; $("#single-plot-out").innerHTML = "";
+  $("#measure-meta").textContent = "";
+  $("#single-ctx").classList.add("hidden");
+  $("#to-plot").classList.add("hidden");
+}
+
+$("#files").addEventListener("change", () => {
+  const f = $("#files").files;
+  $("#go").disabled = f.length === 0;
+  $("#filelist-single").innerHTML = fileSummary(f);
+});
+
+$("#bigimg").addEventListener("click", () => { if ($("#bigimg").src) openLightbox($("#bigimg").src); });
+
+$("#go").addEventListener("click", async () => {
+  const picked = Array.from($("#files").files);
+  const allowed = picked.filter(f => ALLOWED.includes(extOf(f.name)));
+  const skipped = picked.filter(f => !ALLOWED.includes(extOf(f.name)));
+  if (!allowed.length) { $("#upmsg").innerHTML = `<p class="rejected">None of the selected files are an accepted format.</p>`; return; }
+  SINGLE_NAME = allowed[0].name.replace(/\.[^.]+$/, "");
+
+  const fd = new FormData();
+  for (const f of allowed) fd.append("files", f, f.name);
+
+  $("#busy").classList.remove("hidden");
+  $("#upmsg").innerHTML = "";
+  try {
+    const data = await (await fetch("/api/single/inspect", { method: "POST", body: fd })).json();
+    handle(data, skipped);
+  } catch (e) {
+    $("#upmsg").innerHTML = `<p class="rejected">Request failed: ${esc(e)}</p>`;
+  } finally {
+    $("#busy").classList.add("hidden");
+  }
+});
+
+function handle(data, skipped) {
+  // problems that prevent building a field: stay on the uploader
+  if (!data.field) {
+    let h = "";
+    if (data.error) h += `<p class="rejected">${esc(data.error)}</p>`;
+    for (const r of (data.rejected || [])) h += `<p class="rejected">${esc(r.file)}: ${esc(r.reason)}</p>`;
+    for (const f of (skipped || [])) h += `<p class="rejected">${esc(f.name)}: not an accepted format</p>`;
+    $("#upmsg").innerHTML = h || `<p class="rejected">No readable image.</p>`;
+    return;
+  }
+
+  FIELD = data.field;
+  SINGLE_TOKEN = data.token || null;
+  SEG_OVERLAY = null;
+  $("#uploader").classList.add("hidden");
+  $("#workspace").classList.remove("hidden");
+  buildControls(FIELD, data.rejected, skipped);
+  setView(FIELD.composite ? "original" : `ch-${FIELD.channels[0].id}`);
+  Flow.enable("segment"); Flow.go("segment");
+}
+
+function buildControls(f, rejected, skipped) {
+  // View switcher
+  let v = "";
+  if (f.composite) v += `<button class="viewbtn" data-view="original"><span class="vn">RGB</span><span class="vlabel">Original</span></button>`;
+  f.channels.forEach((c, i) => {
+    v += `<button class="viewbtn" data-view="ch-${c.id}"><span class="vn">C${i + 1}</span><span class="vlabel">${esc(c.name)}</span></button>`;
+  });
+  $("#viewlist").innerHTML = v;
+
+  // Segment picker + editable markers
+  let s = `<p class="note">Which channel holds the nuclei?</p>`;
+  f.channels.forEach((c, i) => {
+    s += `<div class="chrow">
+      <label><input type="radio" name="segch" value="${c.id}" data-i="${i}"><span class="meta">C${i + 1}</span></label>
+      <input type="text" id="mk-${c.id}" value="${esc(c.name)}" title="marker or fluorophore">
+    </div>`;
+  });
+  $("#segpick").innerHTML = s;
+
+  // Messages
+  let m = "";
+  if (!f.quantitative) m += `<div class="note">Display image (8-bit or lossy): intensities are not quantitative.</div>`;
+  for (const fl of (f.flags || [])) m += `<div class="flag">${esc(fl)}</div>`;
+  for (const r of (rejected || [])) m += `<div class="flag">${esc(r.file)}: ${esc(r.reason)}</div>`;
+  for (const sk of (skipped || [])) m += `<div class="flag">${esc(sk.name)}: not an accepted format</div>`;
+  $("#msgs").innerHTML = m;
+
+  document.querySelectorAll("#viewlist .viewbtn").forEach(b => b.onclick = () => setView(b.dataset.view));
+
+  // Display viewer (channels in colour + segmentation overlay). Works before
+  // segmenting too; after segmenting it also offers contours and filled masks.
+  $("#view-btn").classList.remove("hidden");
+  $("#view-btn").onclick = () => Viewer.open([{ token: SINGLE_TOKEN, name: SINGLE_NAME }], 0, SEG_OVERLAY != null);
+
+  // Editing a marker relabels its view button and the caption
+  f.channels.forEach((c, i) => {
+    $(`#mk-${c.id}`).addEventListener("input", () => {
+      const vb = document.querySelector(`#viewlist .viewbtn[data-view="ch-${c.id}"] .vlabel`);
+      if (vb) vb.textContent = $(`#mk-${c.id}`).value;
+      if (CURRENT === `ch-${c.id}`) setCaption(`C${i + 1}`, $(`#mk-${c.id}`).value);
+    });
+  });
+
+  // Cellpose speed depends on GPU vs CPU; only worth a line when there is no GPU.
+  $("#seg-note").textContent = GPU_OK ? "" :
+    "Cellpose on CPU is slow. For speed use a machine with a GPU (Apple Silicon or NVIDIA), or a GPU cloud.";
+
+  // Editing = basic web editor (HF version). Hidden until a segmentation exists.
+  $("#edit-seg").classList.add("hidden");
+  $("#edit-seg").onclick = () => {
+    if (!SINGLE_TOKEN) { alert("No image session. Segment again."); return; }
+    if (!window.Editor) { alert("Editor script did not load."); return; }
+    Promise.resolve(Editor.open(SINGLE_TOKEN, (overlay, count) => {
+      SEG_OVERLAY = overlay; addSegView(count); setView("segmentation");
+      $("#msgs").innerHTML = `<div class="result-box">${count} objects after editing.</div>`;
+      singleCtx(count);
+    })).catch(e => alert("Editor error: " + e));
+  };
+
+  // Measure (hidden until a segmentation exists)
+  $("#measure-btn").classList.add("hidden");
+  $("#bg-sub-single-wrap").classList.add("hidden");
+  $("#measure-out").innerHTML = "";
+  $("#measure-meta").textContent = "";
+  $("#single-plot-out").innerHTML = "";
+  $("#single-ctx").classList.add("hidden");
+  $("#to-plot").classList.add("hidden");
+  $("#measure-btn").onclick = async () => {
+    if (!SINGLE_TOKEN) return;
+    Flow.enable("measure"); Flow.go("measure");
+    $("#measure-out").innerHTML = loadingHTML("measuring every channel inside each object");
+    const fd = new FormData(); fd.append("token", SINGLE_TOKEN);
+    fd.append("subtract_bg", $("#bg-sub-single").checked ? "true" : "false");
+    const r = await (await fetch("/api/single/measure", { method: "POST", body: fd })).json();
+    if (r.error) { $("#measure-out").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
+    $("#measure-meta").textContent = r.channels ? `${r.channels.length} channels` : "";
+    renderMeasure("#measure-out", r, "measurements.csv");
+    if (r.result_token) {
+      singlePlotPanel(r);
+      $("#to-plot").classList.remove("hidden");
+      $("#to-plot").onclick = () => { Flow.enable("plot"); Flow.go("plot"); };
+    }
+  };
+
+  // Segment selection enables the primary action
+  const cont = $("#continue");
+  cont.disabled = true;
+  document.querySelectorAll('input[name="segch"]').forEach(r => r.onchange = () => cont.disabled = false);
+  cont.onclick = async () => {
+    const sel = document.querySelector('input[name="segch"]:checked');
+    if (!sel || !SINGLE_TOKEN) return;
+    cont.disabled = true;
+    const t0 = performance.now();
+    const tick = () => { $("#msgs").innerHTML = loadingHTML(`Segmenting with Cellpose, ${fmtSecs((performance.now() - t0) / 1000)}`); };
+    const timer = setInterval(tick, 500); tick();
+    const fd = new FormData();
+    fd.append("token", SINGLE_TOKEN);
+    fd.append("channel", sel.value);
+    fd.append("type", "nuclei");
+    fd.append("diameter", "");
+    try {
+      const r = await (await fetch("/api/single/segment", { method: "POST", body: fd })).json();
+      clearInterval(timer);
+      if (r.error) { $("#msgs").innerHTML = `<div class="flag">${esc(r.error)}</div>`; return; }
+      const secs = fmtSecs((performance.now() - t0) / 1000);
+      SEG_OVERLAY = r.overlay;
+      addSegView(r.count);
+      setView("segmentation");
+      $("#edit-seg").classList.remove("hidden");
+      $("#measure-btn").classList.remove("hidden");
+      $("#bg-sub-single-wrap").classList.remove("hidden");
+      const chName = $(`#mk-${sel.value}`) ? $(`#mk-${sel.value}`).value : `Channel ${Number(sel.dataset.i) + 1}`;
+      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)}, ${esc(r.device || "")}, ${secs}.</div>`;
+      singleCtx(r.count, chName);
+    } catch (e) {
+      clearInterval(timer);
+      $("#msgs").innerHTML = `<div class="flag">Segmentation failed: ${esc(e)}</div>`;
+    } finally {
+      cont.disabled = false;
+    }
+  };
+}
+
+// compact context strip kept above the measurement and plot steps
+let SINGLE_CH_NAME = "";
+function singleCtx(count, chName) {
+  if (chName) SINGLE_CH_NAME = chName;
+  const box = $("#single-ctx");
+  box.classList.remove("hidden");
+  box.innerHTML = `${SEG_OVERLAY ? `<img src="${SEG_OVERLAY}" alt="">` : ""}
+    <span class="name">${esc(SINGLE_NAME)}</span>
+    <span class="meta">${count} objects on ${esc(SINGLE_CH_NAME)}</span>`;
+  const im = box.querySelector("img"); if (im) im.onclick = () => openLightbox(im.src);
+}
+
+function addSegView(count) {
+  let b = document.querySelector('#viewlist .viewbtn[data-view="segmentation"]');
+  if (!b) {
+    b = document.createElement("button");
+    b.className = "viewbtn";
+    b.dataset.view = "segmentation";
+    b.onclick = () => setView("segmentation");
+    $("#viewlist").appendChild(b);
+  }
+  b.innerHTML = `<span class="vn">SEG</span><span class="vlabel">Segmentation</span><span class="meta" style="margin-left:auto">${count}</span>`;
+}
+
+function setCaption(kicker, text) { $("#caption").innerHTML = `<span>${esc(kicker)}</span><span>${esc(text)}</span>`; }
+
+let CURRENT = null;
+function setView(view) {
+  CURRENT = view;
+  let src;
+  if (view === "segmentation") { src = SEG_OVERLAY; setCaption("SEG", "segmentation overlay"); }
+  else if (view === "original") { src = FIELD.composite; setCaption("RGB", "original, merged channels"); }
+  else {
+    const id = Number(view.split("-")[1]);
+    const c = FIELD.channels.find(x => x.id === id);
+    const i = FIELD.channels.indexOf(c);
+    src = c.preview;
+    setCaption(`C${i + 1}`, $(`#mk-${id}`) ? $(`#mk-${id}`).value : c.name);
+  }
+  $("#bigimg").src = src || "";
+  document.querySelectorAll("#viewlist .viewbtn").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+}
+
+// ---------------------------------------------------------------- batch flow
+let BFIELDS = [];
+let BTOKEN = null;
+let CHANNEL_LABELS = null;   // batch-wide channel labels (when channels are consistent)
+let SEG_MODE = "nuclei";     // "nuclei" | "cells" (whole cells anchored to nuclei)
+let SEG_CHANNEL = null;      // channel index segmented in every image
+let CELL_CHANNEL = null;     // cytoplasm/membrane channel index (only used in "cells" mode)
+let MEAS_OPTIONS = null;     // the Set Measurements list (fetched from the backend)
+let MEAS_SEL = null;         // measurement keys the user chose (read at Measure time)
+let RESULT_TOKEN = null;     // server-side handle for the measured rows (plots reuse them)
+
+function mToUploader() {
+  BFIELDS = []; CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_CHANNEL = null; CELL_CHANNEL = null; BSEG = [];
+  RESULT_TOKEN = null;
+  $("#mworkspace").classList.add("hidden");
+  $("#muploader").classList.remove("hidden");
+  $("#mfiles").value = ""; $("#mgo").disabled = true;
+  $("#mupmsg").innerHTML = ""; $("#filelist-batch").innerHTML = "";
+  ["#channels-panel", "#segment-panel", "#measure-panel-b", "#analyze-panel", "#maddmsg", "#mrejected"]
+    .forEach(s => { const e = $(s); if (e) e.innerHTML = ""; });
+}
+
+$("#mfiles").addEventListener("change", () => {
+  const f = $("#mfiles").files;
+  $("#mgo").disabled = f.length === 0;
+  $("#filelist-batch").innerHTML = fileSummary(f);
+});
+
+$("#to-channels").onclick = () => { Flow.enable("channels"); Flow.go("channels"); };
+
+// Add more images to the current dataset (keeps existing edits and removals)
+$("#maddbtn").onclick = () => $("#maddfiles").click();
+$("#maddfiles").addEventListener("change", addImages);
+
+// Remove several images at once (checkbox selection)
+$("#mremovesel").onclick = () => {
+  const sel = new Set([...document.querySelectorAll("#btable .sel:checked")].map(el => +el.dataset.idx));
+  if (!sel.size) { $("#maddmsg").innerHTML = `<p class="rejected">No images selected.</p>`; return; }
+  BFIELDS = BFIELDS.filter((_, i) => !sel.has(i));
+  $("#maddmsg").innerHTML = "";
+  renderTable();
+};
+
+async function addImages() {
+  const picked = Array.from($("#maddfiles").files);
+  if (!picked.length) return;
+  const allowed = picked.filter(f => ALLOWED.includes(extOf(f.name)));
+  const skipped = picked.filter(f => !ALLOWED.includes(extOf(f.name)));
+  $("#maddmsg").innerHTML = "";
+  if (!allowed.length) {
+    $("#maddmsg").innerHTML = `<p class="rejected">None of the selected files are an accepted format.</p>`;
+    $("#maddfiles").value = ""; return;
+  }
+
+  // Always add the images, then let the Channels step re-check coherence over the
+  // whole dataset (channel count and quantitative vs display format).
+  const fd = new FormData();
+  for (const f of allowed) fd.append("files", f, f.name);
+  $("#maddbusy").classList.remove("hidden");
+  try {
+    const data = await (await fetch("/api/batch/inspect", { method: "POST", body: fd })).json();
+    if (data.blocked) { $("#maddmsg").innerHTML = `<p class="rejected">${esc(data.error)}</p>`; return; }
+    const newFields = data.fields || [];
+    newFields.forEach(f => f.__token = data.token || null);
+    BFIELDS.push(...newFields);
+
+    let msg = "";
+    for (const r of (data.rejected || [])) msg += `<p class="rejected">${esc(r.file)}: ${esc(r.reason)}</p>`;
+    for (const f of skipped) msg += `<p class="rejected">${esc(f.name)}: not an accepted format</p>`;
+    if (!newFields.length && !msg) msg = `<p class="rejected">No readable images to add.</p>`;
+    $("#maddmsg").innerHTML = msg;
+    renderTable();
+  } catch (e) {
+    $("#maddmsg").innerHTML = `<p class="rejected">Request failed: ${esc(e)}</p>`;
+  } finally {
+    $("#maddbusy").classList.add("hidden");
+    $("#maddfiles").value = "";
+  }
+}
+
+// click a thumbnail -> open the image inspector at that image
+$("#btable").addEventListener("click", e => {
+  if (e.target.tagName !== "IMG") return;
+  const idx = Number(e.target.dataset.idx);
+  if (Number.isInteger(idx)) openInspector(idx);
+});
+
+// ---- Image inspector: browse the dataset, see what is in each channel ----
+let INSP_IDX = -1;
+let INSP_FIELD = null;
+
+function openInspector(idx) {
+  if (!BFIELDS.length) return;
+  INSP_IDX = Math.max(0, Math.min(idx, BFIELDS.length - 1));
+  const f = BFIELDS[INSP_IDX];
+  INSP_FIELD = null;
+  $("#inspector").classList.add("show");
+  $("#insp-title").textContent = f.key + (f.condition ? "  (" + f.condition + ")" : "");
+  $("#insp-pos").textContent = `${INSP_IDX + 1} / ${BFIELDS.length}`;
+  $("#insp-prev").disabled = INSP_IDX <= 0;
+  $("#insp-next").disabled = INSP_IDX >= BFIELDS.length - 1;
+  $("#insp-views").innerHTML = loadingHTML("loading channels");
+  $("#insp-meta").innerHTML = "";
+  $("#insp-img").src = f.thumbnail || "";
+
+  const fd = new FormData(); fd.append("token", f.__token || ""); fd.append("key", f.key);
+  fetch("/api/batch/preview", { method: "POST", body: fd })
+    .then(r => r.json())
+    .then(d => {
+      if (!$("#inspector").classList.contains("show")) return;
+      if (d.field) { INSP_FIELD = d.field; renderInspector(d.field); }
+      else $("#insp-views").innerHTML = `<div class="flag">${esc(d.error || "No preview.")}</div>`;
+    })
+    .catch(e => { $("#insp-views").innerHTML = `<div class="flag">Failed to load: ${esc(e)}</div>`; });
+}
+
+function renderInspector(f) {
+  let v = "";
+  if (f.composite) v += `<button class="viewbtn" data-view="original"><span class="vn">RGB</span><span class="vlabel">Original</span></button>`;
+  f.channels.forEach((c, i) => {
+    v += `<button class="viewbtn" data-view="ch-${c.id}"><span class="vn">C${i + 1}</span><span class="vlabel">${esc(c.name)}</span></button>`;
+  });
+  $("#insp-views").innerHTML = v;
+  $("#insp-meta").innerHTML = `${f.n_channels} channels &middot; ${esc(f.formats.join(", "))}`
+    + (f.quantitative ? "" : "<br>display image, not quantitative");
+  document.querySelectorAll("#insp-views .viewbtn").forEach(b => b.onclick = () => setInspView(b.dataset.view));
+  setInspView(f.composite ? "original" : `ch-${f.channels[0].id}`);
+}
+
+function setInspView(view) {
+  if (!INSP_FIELD) return;
+  let src;
+  if (view === "original") src = INSP_FIELD.composite;
+  else { const id = Number(view.split("-")[1]); const c = INSP_FIELD.channels.find(x => x.id === id); src = c && c.preview; }
+  $("#insp-img").src = src || "";
+  document.querySelectorAll("#insp-views .viewbtn").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+}
+
+$("#insp-close").onclick = () => { $("#inspector").classList.remove("show"); INSP_IDX = -1; INSP_FIELD = null; };
+$("#insp-prev").onclick = () => { if (INSP_IDX > 0) openInspector(INSP_IDX - 1); };
+$("#insp-next").onclick = () => { if (INSP_IDX < BFIELDS.length - 1) openInspector(INSP_IDX + 1); };
+
+$("#mgo").addEventListener("click", async () => {
+  const picked = Array.from($("#mfiles").files);
+  const allowed = picked.filter(f => ALLOWED.includes(extOf(f.name)));
+  const skipped = picked.filter(f => !ALLOWED.includes(extOf(f.name)));
+  if (!allowed.length) { $("#mupmsg").innerHTML = `<p class="rejected">None of the selected files are an accepted format.</p>`; return; }
+
+  const fd = new FormData();
+  for (const f of allowed) fd.append("files", f, f.name);
+
+  $("#mbusy").classList.remove("hidden");
+  $("#mupmsg").innerHTML = "";
+  try {
+    const data = await (await fetch("/api/batch/inspect", { method: "POST", body: fd })).json();
+    renderBatch(data, skipped);
+  } catch (e) {
+    $("#mupmsg").innerHTML = `<p class="rejected">Request failed: ${esc(e)}</p>`;
+  } finally {
+    $("#mbusy").classList.add("hidden");
+  }
+});
+
+function renderBatch(data, skipped) {
+  BFIELDS = data.fields || [];
+  BTOKEN = data.token || null;
+  CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_CHANNEL = null; CELL_CHANNEL = null;
+  BSEG = [];                                   // drop any segmentation from a previous dataset
+  BFIELDS.forEach(f => f.__token = data.token || null);   // each field remembers its session
+  if (!BFIELDS.length) {
+    let h = "";
+    if (data.error) h += `<p class="rejected">${esc(data.error)}</p>`;
+    for (const r of (data.rejected || [])) h += `<p class="rejected">${esc(r.file)}: ${esc(r.reason)}</p>`;
+    for (const f of (skipped || [])) h += `<p class="rejected">${esc(f.name)}: not an accepted format</p>`;
+    $("#mupmsg").innerHTML = h || `<p class="rejected">No readable images.</p>`;
+    return;
+  }
+  $("#muploader").classList.add("hidden");
+  $("#mworkspace").classList.remove("hidden");
+
+  let rj = "";
+  for (const r of (data.rejected || [])) rj += `<p class="rejected">${esc(r.file)}: ${esc(r.reason)}</p>`;
+  for (const f of (skipped || [])) rj += `<p class="rejected">${esc(f.name)}: not an accepted format</p>`;
+  $("#mrejected").innerHTML = rj;
+
+  renderTable();
+}
+
+function renderTable() {
+  if (!BFIELDS.length) {
+    $("#btable").innerHTML = `<p class="note">No images left. Add images, or start over.</p>`;
+    $("#images-count").textContent = "";
+    $("#to-channels").disabled = true;
+    updateSelCount(); recomputeSummary(); renderChannels();
+    return;
+  }
+  const hasNotes = BFIELDS.some(f => f.status !== "ok" && (f.flags || []).length);
+
+  let rows = `<div class="tablewrap"><table class="batch"><thead><tr>
+    <th style="width:28px"><input type="checkbox" id="selall" title="Select all"></th>
+    <th>Image</th><th>Field</th><th>Condition</th><th>Replicate</th>
+    <th>Control</th><th>Channels</th>${hasNotes ? "<th>Notes</th>" : ""}<th></th></tr></thead><tbody>`;
+  BFIELDS.forEach((f, i) => {
+    const markers = f.channels.map(c => esc(c.name)).join(", ");
+    const notes = (f.status === "ok" ? "" : (f.flags || []).map(x => `<div class="flag">${esc(x)}</div>`).join(""));
+    rows += `<tr class="${f.status}">
+      <td><input type="checkbox" class="sel" data-idx="${i}"></td>
+      <td>${f.thumbnail ? `<img src="${f.thumbnail}" data-idx="${i}" title="Inspect channels" alt="">` : ""}</td>
+      <td>${esc(f.key)}<div class="files">${f.files.map(esc).join("<br>")}</div></td>
+      <td><input type="text" data-idx="${i}" class="cond" value="${esc(f.condition || "")}" placeholder="required"></td>
+      <td><input type="number" data-idx="${i}" class="rep" value="${f.replicate ?? ""}" placeholder="Foto n"></td>
+      <td style="text-align:center"><input type="checkbox" data-idx="${i}" class="ctrl" ${f.control ? "checked" : ""}></td>
+      <td>${markers}</td>
+      ${hasNotes ? `<td>${notes}</td>` : ""}
+      <td style="text-align:right"><button class="rm" data-idx="${i}" title="Remove from dataset">&times;</button></td>
+    </tr>`;
+  });
+  rows += `</tbody></table></div>`;
+  $("#btable").innerHTML = rows;
+
+  document.querySelectorAll("#btable .cond").forEach(el =>
+    el.addEventListener("input", () => { BFIELDS[+el.dataset.idx].condition = el.value || null; recomputeSummary(); }));
+  document.querySelectorAll("#btable .rep").forEach(el =>
+    el.addEventListener("input", () => { BFIELDS[+el.dataset.idx].replicate = el.value === "" ? null : Number(el.value); }));
+  document.querySelectorAll("#btable .ctrl").forEach(el =>
+    el.addEventListener("change", () => { BFIELDS[+el.dataset.idx].control = el.checked; recomputeSummary(); }));
+  document.querySelectorAll("#btable .rm").forEach(el =>
+    el.addEventListener("click", () => { BFIELDS.splice(+el.dataset.idx, 1); renderTable(); }));
+
+  const selall = document.getElementById("selall");
+  if (selall) selall.addEventListener("change", () => {
+    document.querySelectorAll("#btable .sel").forEach(cb => cb.checked = selall.checked);
+    updateSelCount();
+  });
+  document.querySelectorAll("#btable .sel").forEach(cb => cb.addEventListener("change", updateSelCount));
+
+  $("#images-count").textContent = `${BFIELDS.length} images`;
+  $("#to-channels").disabled = false;
+  updateSelCount();
+  recomputeSummary();
+  renderChannels();
+}
+
+function selectedIdxs() {
+  return Array.from(document.querySelectorAll("#btable .sel:checked")).map(cb => +cb.dataset.idx);
+}
+function updateSegBtn() {
+  const b = document.getElementById("segall"); if (!b) return;
+  const n = selectedIdxs().length;
+  b.textContent = n ? `Segment selected (${n})` : "Segment all images";
+}
+function updateSelCount() {
+  const n = document.querySelectorAll("#btable .sel:checked").length;
+  const b = $("#mremovesel"); if (b) b.disabled = n === 0;
+  const c = $("#sel-count"); if (c) c.textContent = n ? `${n} selected` : "";
+  updateSegBtn();
+}
+
+// Batch channels: check only the FACTUAL things (format, channel count). What each
+// channel CONTAINS is not knowable from the file, so the user inspects the images
+// and declares the markers; we do not assert marker-content sameness.
+function computeLayout() {
+  if (!BFIELDS.length) return { empty: true };
+  // format coherence: cannot mix quantitative (CZI/TIFF) with display (PNG/JPEG)
+  if (new Set(BFIELDS.map(f => !!f.quantitative)).size > 1) return { ok: false, reason: "format" };
+  // channel-count coherence: one segmentation-channel index must apply to every image
+  const counts = [...new Set(BFIELDS.map(f => f.channels.length))];
+  if (counts.length > 1) return { ok: false, reason: "count" };
+  return { ok: true, n: BFIELDS[0].channels.length, names: BFIELDS[0].channels.map(c => c.name) };
+}
+
+function renderChannels() {
+  const p = $("#channels-panel");
+  const L = computeLayout();
+  if (L.empty) { p.innerHTML = ""; return; }
+
+  const head = `<div class="panel-head"><h2>Channels</h2><span class="meta">${BFIELDS.length} images</span></div>`;
+
+  if (!L.ok) {
+    let msg = `<div class="flag"><b>The images are not consistent. Fix this before choosing a channel to segment.</b></div>`;
+    if (L.reason === "format") {
+      const q = BFIELDS.filter(f => f.quantitative).map(f => f.key);
+      const d = BFIELDS.filter(f => !f.quantitative).map(f => f.key);
+      msg += `<div class="flag">Quantitative and display images cannot be compared in one set.</div>`;
+      msg += `<div class="flag">Quantitative (CZI/TIFF): ${q.map(esc).join(", ")}</div>`;
+      msg += `<div class="flag">Display (PNG/JPEG): ${d.map(esc).join(", ")}</div>`;
+    } else if (L.reason === "count") {
+      const byCount = {};
+      BFIELDS.forEach(f => { const c = f.channels.length; (byCount[c] = byCount[c] || []).push(f.key); });
+      msg += `<div class="flag">Images have different numbers of channels:</div>`;
+      Object.keys(byCount).forEach(c => { msg += `<div class="flag">${c} channels: ${byCount[c].map(esc).join(", ")}</div>`; });
+    }
+    p.innerHTML = head + msg;
+    SEG_CHANNEL = null;
+    return;
+  }
+
+  if (!CHANNEL_LABELS || CHANNEL_LABELS.length !== L.n) CHANNEL_LABELS = L.names.slice();
+  if (SEG_CHANNEL != null && SEG_CHANNEL >= L.n) SEG_CHANNEL = null;
+
+  const chanOpts = (selIdx) => {
+    let o = `<option value="">select</option>`;
+    for (let i = 0; i < L.n; i++)
+      o += `<option value="${i}" ${i === selIdx ? "selected" : ""}>C${i + 1} &middot; ${esc(CHANNEL_LABELS[i])}</option>`;
+    return o;
+  };
+
+  let h = head;
+  h += `<div class="block"><h3>Markers</h3>`;
+  h += `<p class="note">Every image has ${L.n} channels. Name each one.</p>`;
+  h += `<table class="batch" style="max-width:520px"><thead><tr><th>Channel</th><th>Marker</th></tr></thead><tbody>`;
+  for (let i = 0; i < L.n; i++) {
+    h += `<tr><td class="meta">C${i + 1}</td><td><input type="text" class="chlabel" data-i="${i}" value="${esc(CHANNEL_LABELS[i])}"></td></tr>`;
+  }
+  h += `</tbody></table>
+        <div class="actionrow"><button id="inspect-btn" class="sm">Inspect images</button></div></div>`;
+
+  h += `<div class="block"><h3>What to segment</h3>
+    <div class="choices">
+      <label><input type="radio" name="segmode" value="nuclei" ${SEG_MODE !== "cells" ? "checked" : ""}> Nuclei</label>
+      <label><input type="radio" name="segmode" value="cells" ${SEG_MODE === "cells" ? "checked" : ""}> Whole cells</label>
+    </div>
+    <label class="field" style="max-width:280px"><span id="seg-chan-label"></span>
+      <select id="segchannel">${chanOpts(SEG_CHANNEL)}</select></label>
+    <div id="chan-msg"></div></div>`;
+
+  h += `<div class="rowend"><button class="back">Back</button>
+        <button id="segall" class="primary">Segment all images</button></div>`;
+  p.innerHTML = h;
+
+  document.querySelectorAll(".chlabel").forEach(el =>
+    el.addEventListener("input", () => { CHANNEL_LABELS[+el.dataset.i] = el.value; }));
+  const segSel = $("#segchannel");
+  if (segSel) segSel.onchange = () => { SEG_CHANNEL = segSel.value === "" ? null : +segSel.value; $("#chan-msg").innerHTML = ""; };
+  const syncMode = () => {
+    SEG_MODE = (document.querySelector('input[name="segmode"]:checked') || {}).value || "nuclei";
+    $("#seg-chan-label").textContent = SEG_MODE === "cells" ? "Cell or membrane channel" : "Nuclei channel";
+    updateSegBtn();
+  };
+  document.querySelectorAll('input[name="segmode"]').forEach(el => el.onchange = syncMode);
+  syncMode();
+  $("#inspect-btn").onclick = () => openInspector(0);
+  $("#segall").onclick = segmentAllBatch;
+  updateSegBtn();
+}
+
+let BSEG = [];   // segmented batch fields: {key, token, count, overlay, condition, replicate, control}
+
+function renderSegmentPanel() {
+  const p = $("#segment-panel");
+  p.innerHTML = `<div class="panel-head"><h2>Segment</h2></div>
+    <div class="loading" id="segbar-wrap"><span class="prog run" id="segbar"><i></i></span>
+      <span id="segprogress" class="meta"></span></div>
+    <div id="segresults"></div>
+    <div class="rowend">
+      <button class="back">Back</button>
+      <button id="to-measure" class="primary hidden">Continue to measurements</button>
+    </div>`;
+  $("#to-measure").onclick = () => { Flow.enable("measure"); Flow.go("measure"); renderMeasurePanel(); };
+  renderSegResults();
+}
+
+function segBar(done, total, running) {
+  const bar = $("#segbar"); if (!bar) return;
+  bar.classList.toggle("run", !!running);
+  const fill = bar.querySelector("i");
+  if (fill) fill.style.width = (total ? Math.round(done / total * 100) : 0) + "%";
+}
+
+async function segmentAllBatch() {
+  if (SEG_CHANNEL == null) {
+    $("#chan-msg").innerHTML = `<p class="flag">Choose the ${SEG_MODE === "cells" ? "cell or membrane" : "nuclei"} channel first.</p>`;
+    return;
+  }
+  const segType = SEG_MODE === "cells" ? "cells" : "nuclei";
+  const sel = selectedIdxs();
+  const targets = sel.length ? sel.map(i => BFIELDS[i]) : BFIELDS.slice();
+  const btn = $("#segall"); btn.disabled = true;
+  BSEG = [];
+  Flow.enable("segment"); Flow.go("segment"); renderSegmentPanel();
+  const N = targets.length;
+  const marker = (CHANNEL_LABELS && CHANNEL_LABELS[SEG_CHANNEL]) || ("C" + (SEG_CHANNEL + 1));
+  const t0 = performance.now();
+  let done = 0, current = "";
+
+  // live tracker: images done / total, elapsed, and an ETA once we have an average
+  const tick = () => {
+    const elapsed = (performance.now() - t0) / 1000;
+    let eta = "";
+    if (done > 0 && done < N) eta = ` &middot; about ${fmtSecs((elapsed / done) * (N - done))} left`;
+    const el = $("#segprogress"); if (!el) return;
+    el.innerHTML = `${done}/${N} on ${esc(marker)} &middot; ${fmtSecs(elapsed)}${eta}` + (current ? ` &middot; ${esc(current)}` : "");
+    segBar(done, N, true);
+  };
+  const timer = setInterval(tick, 500); tick();
+
+  for (let i = 0; i < N; i++) {
+    const f = targets[i];
+    current = f.key; tick();
+    try {
+      const fd = new FormData();
+      fd.append("token", f.__token); fd.append("key", f.key);
+      fd.append("channel", SEG_CHANNEL); fd.append("type", segType); fd.append("diameter", "");
+      const r = await (await fetch("/api/batch/segment_one", { method: "POST", body: fd })).json();
+      if (r.error) { clearInterval(timer); segBar(done, N, false); $("#segprogress").innerHTML = `<span class="flag">${esc(f.key)}: ${esc(r.error)}</span>`; btn.disabled = false; return; }
+      BSEG.push({ key: f.key, token: r.token, count: r.count, overlay: r.overlay,
+                  condition: f.condition, replicate: f.replicate, control: f.control });
+      done++; current = ""; renderSegResults(); tick();
+    } catch (e) {
+      clearInterval(timer);
+      segBar(done, N, false);
+      $("#segprogress").innerHTML = `<span class="flag">Failed on ${esc(f.key)}: ${esc(e)}</span>`;
+      btn.disabled = false; return;
+    }
+  }
+  clearInterval(timer);
+  const total = BSEG.reduce((a, s) => a + s.count, 0);
+  $("#segprogress").innerHTML = `${BSEG.length}/${N} images &middot; ${total} objects &middot; ${fmtSecs((performance.now() - t0) / 1000)}`;
+  segBar(N, N, false);
+  btn.disabled = false;
+  const cont = $("#to-measure"); if (cont) cont.classList.remove("hidden");
+}
+
+function renderSegResults() {
+  const box = $("#segresults");
+  if (!box) return;
+  if (!BSEG.length) { box.innerHTML = ""; return; }
+  let h = `<table class="batch"><thead><tr><th>Image</th><th>Field</th><th>Condition</th>
+           <th class="num">Objects</th><th></th></tr></thead><tbody>`;
+  BSEG.forEach((s, i) => {
+    h += `<tr>
+      <td><img class="segthumb" src="${s.overlay}" data-i="${i}" alt=""></td>
+      <td>${esc(s.key)}</td>
+      <td>${esc(s.condition || "")}${s.control ? ` <span class="meta">control</span>` : ""}</td>
+      <td class="num">${s.count}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="viewseg sm" data-i="${i}">View</button>
+        <button class="editseg sm" data-i="${i}">Review</button></td>
+    </tr>`;
+  });
+  h += `</tbody></table>`;
+  box.innerHTML = h;
+  document.querySelectorAll("#segresults .segthumb").forEach(im => im.onclick = () => openLightbox(im.src));
+  document.querySelectorAll("#segresults .editseg").forEach(b => b.onclick = () => {
+    Editor.openBatch(BSEG, +b.dataset.i, (idx, overlay, count) => {
+      BSEG[idx].overlay = overlay; BSEG[idx].count = count; renderSegResults();
+    });
+  });
+  document.querySelectorAll("#segresults .viewseg").forEach(b => b.onclick = () =>
+    Viewer.open(BSEG.map(s => ({ token: s.token, name: s.key })), +b.dataset.i, true));
+}
+
+function measChecklist() {
+  if (!MEAS_OPTIONS) return `<div class="meta">loading measurement options</div>`;
+  const grp = (cat, title) => {
+    const items = MEAS_OPTIONS.filter(m => m.category === cat).map(m =>
+      `<label><input type="checkbox" class="measopt" value="${m.key}" ${m.default ? "checked" : ""}> ${esc(m.label)}</label>`).join("");
+    return `<div><div class="picker-title">${title}</div>${items}</div>`;
+  };
+  return `<div class="cmp-pickers">${grp("intensity", "Intensity")}${grp("geometry", "Geometry and shape")}</div>`;
+}
+
+function renderMeasurePanel() {
+  const p = $("#measure-panel-b");
+  const total = BSEG.reduce((a, s) => a + s.count, 0);
+  p.innerHTML = `<div class="panel-head"><h2>Measurements</h2>
+      <span class="meta">${BSEG.length} images &middot; ${total} objects</span></div>
+    <div class="block"><h3>Set measurements</h3><div id="meas-set">${measChecklist()}</div>
+      <div class="actionrow" style="margin-top:14px">
+        <label><input type="checkbox" id="bg-sub"> Subtract background (median of background pixels)</label>
+      </div></div>
+    <div class="rowend"><button class="back">Back</button>
+      <button id="measure-all" class="primary">Measure all</button>
+      <button id="to-analyze" class="hidden">Plots and analysis</button></div>
+    <div id="measure-out-batch" class="block"></div>`;
+
+  $("#to-analyze").onclick = () => { Flow.enable("analyze"); Flow.go("analyze"); };
+  $("#measure-all").onclick = async () => {
+    const items = BSEG.map(s => ({ token: s.token, image: s.key, condition: s.condition, replicate: s.replicate }));
+    MEAS_SEL = [...document.querySelectorAll("#meas-set .measopt:checked")].map(c => c.value);
+    if (!MEAS_SEL.length) { $("#measure-out-batch").innerHTML = `<p class="flag">Select at least one measurement.</p>`; return; }
+    $("#measure-out-batch").innerHTML = loadingHTML("measuring every channel inside each object");
+    const fd = new FormData(); fd.append("items", JSON.stringify(items));
+    fd.append("subtract_bg", $("#bg-sub") && $("#bg-sub").checked ? "true" : "false");
+    fd.append("measurements", JSON.stringify(MEAS_SEL));
+    const r = await (await fetch("/api/batch/measure", { method: "POST", body: fd })).json();
+    if (r.error) { $("#measure-out-batch").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
+    RESULT_TOKEN = r.result_token || null;
+    renderMeasure("#measure-out-batch", r, "measurements.csv");
+    buildCompareUI(r.channels || [], r.conditions || [], metricsOf(r.columns));
+    Flow.enable("analyze");
+    $("#measure-all").classList.remove("primary");
+    $("#to-analyze").classList.remove("hidden");
+    $("#to-analyze").classList.add("primary");
+  };
+}
+
+function buildCompareUI(channels, conditions, metrics) {
+  const box = $("#analyze-panel"); if (!box) return;
+  const opt = (a) => a.map(x => `<option>${esc(x)}</option>`).join("");
+  const metricList = (metrics && metrics.length) ? metrics.slice() : ["mean_intensity", "intden_sum", "area_px"];
+  const checks = (cls, arr, on) => arr.map(v =>
+    `<label><input type="checkbox" class="${cls}" value="${esc(v)}" ${on(v) ? "checked" : ""}> ${esc(v)}</label>`).join("");
+  const isNuc = (m) => /dapi|hoechst|nucle/i.test(m);
+  const mkOn = channels.some(m => !isNuc(m)) ? (m) => !isNuc(m) : () => true;
+
+  box.innerHTML = `
+    <div class="panel-head"><h2>Analysis</h2>
+      <span class="meta">${conditions.length} conditions &middot; ${channels.length} markers</span></div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="cmp">Comparison</button>
+      <button class="tab" data-tab="sc">Co-expression</button>
+      <button class="tab" data-tab="pos">Positivity</button>
+    </div>
+
+    <div class="tabpanel" data-tab="cmp">
+      <div class="plot-wrap">
+        <div class="plot-controls">
+          <label>Metric <select id="cmp-metric">${opt(metricList)}</select></label>
+          <label>Group by <select id="cmp-x">
+            <option value="condition">Condition (pool photos)</option>
+            <option value="photo">Photo (within one condition)</option>
+            <option value="condition_photo">Condition and photo</option>
+          </select></label>
+          <label id="cmp-focus-wrap" style="display:none">Which condition <select id="cmp-focus">${opt(conditions)}</select></label>
+          <label>Plot style <select id="cmp-style"><option value="violin">Violin</option><option value="box">Box</option></select></label>
+          <label>Palette <select id="cmp-palette">${paletteOpts()}</select></label>
+          <label><input type="checkbox" id="cmp-log2"> log2 y axis</label>
+          <div class="picker-group" id="cmp-conds-wrap"><div class="picker-title">Conditions</div>
+            <div id="cmp-conds" class="picker-list">${checks("cmp-cond", conditions, () => true)}</div></div>
+          <div class="picker-group"><div class="picker-title">Markers</div>
+            <div id="cmp-markers" class="picker-list">${checks("cmp-mk", channels, mkOn)}</div></div>
+        </div>
+        <div class="plot-preview">
+          <div id="cmp-fig" class="plot-fig"><div class="meta">building preview</div></div>
+          <div id="cmp-dl" class="meta" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabpanel hidden" data-tab="sc">
+      <div class="plot-wrap">
+        <div class="plot-controls">
+          <label>X marker <select id="sc-x">${channels.map((c, i) => `<option ${i === 0 ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
+          <label>Y marker <select id="sc-y">${channels.map((c, i) => `<option ${i === (channels.length > 1 ? 1 : 0) ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
+          <label><input type="checkbox" id="sc-log2" checked> log2 axes</label>
+          <label>X threshold <input type="number" id="sc-xthr" placeholder="optional"></label>
+          <label>Y threshold <input type="number" id="sc-ythr" placeholder="optional"></label>
+          <div class="note">One panel per condition, one point per cell. Uses the Conditions filter of the Comparison tab.</div>
+        </div>
+        <div class="plot-preview">
+          <div id="sc-fig" class="plot-fig"><div class="meta">pick two markers</div></div>
+          <div id="sc-dl" class="meta" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabpanel hidden" data-tab="pos">
+      <div class="plot-wrap">
+        <div class="plot-controls">
+          <label>Marker <select id="pos-ch">
+            <option value="__all__">All markers</option>${opt(channels)}</select></label>
+          <label>Rule <select id="pos-rule">
+            <option value="mean_ksd">Mean + k &times; SD of control</option>
+            <option value="percentile">Percentile of control</option>
+            <option value="absolute">Absolute value</option>
+          </select></label>
+          <label id="pos-ctrl-wrap">Control condition <select id="pos-ctrl">${opt(conditions)}</select></label>
+          <label id="pos-k-wrap">k <input type="number" id="pos-k" value="2" step="0.5"></label>
+          <label id="pos-pct-wrap">Percentile <input type="number" id="pos-pct" value="99" step="1" min="50" max="100"></label>
+          <label id="pos-abs-wrap">Value <input type="number" id="pos-abs"></label>
+          <div class="note">mean + 2 &times; SD is about the 97.7th percentile of the control
+            background, near 2.3% false positives. Use the secondary only control.
+            Each marker gets its own threshold from that control.</div>
+        </div>
+        <div class="plot-preview"><div id="pos-out" class="plot-fig"><div class="meta">choose a control condition</div></div></div>
+      </div>
+    </div>
+
+    <div class="rowend"><button class="back">Back</button></div>`;
+
+  box.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+    box.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
+    box.querySelectorAll(".tabpanel").forEach(p => p.classList.toggle("hidden", p.dataset.tab !== t.dataset.tab));
+  });
+
+  // ---- comparison plot (live preview) ----
+  const conds = () => [...document.querySelectorAll("#cmp-conds .cmp-cond:checked")].map(c => c.value);
+  const mks = () => [...document.querySelectorAll("#cmp-markers .cmp-mk:checked")].map(c => c.value);
+  const doPlot = async () => {
+    if (!RESULT_TOKEN) return;
+    $("#cmp-fig").innerHTML = loadingHTML("updating");
+    const fd = new FormData();
+    fd.append("result_token", RESULT_TOKEN);
+    fd.append("value", $("#cmp-metric").value);
+    fd.append("log2", $("#cmp-log2").checked ? "true" : "false");
+    fd.append("x", $("#cmp-x").value);
+    fd.append("style", $("#cmp-style").value);
+    fd.append("palette", $("#cmp-palette").value);
+    fd.append("conditions", JSON.stringify(conds()));
+    fd.append("markers", JSON.stringify(mks()));
+    fd.append("focus_condition", $("#cmp-focus") ? $("#cmp-focus").value : "");
+    const r = await (await fetch("/api/batch/plot", { method: "POST", body: fd })).json();
+    if (r.error) { $("#cmp-fig").innerHTML = `<p class="flag">${esc(r.error)}</p>`; $("#cmp-dl").innerHTML = ""; return; }
+    $("#cmp-fig").innerHTML = `<img class="cmpimg" src="${r.figure}" alt="">`;
+    $("#cmp-dl").innerHTML = `<a download="comparison.png" href="${r.figure}">Download plot</a>`;
+    const im = $("#cmp-fig .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
+  };
+  const plotDebounced = debounce(doPlot, 250);
+
+  const syncCmpX = () => {
+    const photo = $("#cmp-x").value === "photo";
+    $("#cmp-focus-wrap").style.display = photo ? "" : "none";
+    $("#cmp-conds-wrap").style.display = photo ? "none" : "";
+  };
+  ["cmp-metric", "cmp-focus", "cmp-style", "cmp-log2"].forEach(id => { const e = $("#" + id); if (e) e.onchange = plotDebounced; });
+  $("#cmp-x").onchange = () => { syncCmpX(); plotDebounced(); };
+  document.querySelectorAll("#cmp-conds .cmp-cond, #cmp-markers .cmp-mk").forEach(c => c.onchange = plotDebounced);
+  syncCmpX();
+  doPlot();
+
+  // ---- co-expression scatter (live) ----
+  const doScatter = async () => {
+    if (!RESULT_TOKEN) return;
+    const x = $("#sc-x").value, y = $("#sc-y").value;
+    if (x === y) { $("#sc-fig").innerHTML = `<p class="flag">Pick two different markers.</p>`; $("#sc-dl").innerHTML = ""; return; }
+    $("#sc-fig").innerHTML = loadingHTML("plotting");
+    const fd = new FormData();
+    fd.append("result_token", RESULT_TOKEN);
+    fd.append("x_channel", x); fd.append("y_channel", y);
+    fd.append("log2", $("#sc-log2").checked ? "true" : "false");
+    fd.append("conditions", JSON.stringify(conds()));
+    fd.append("x_thr", $("#sc-xthr").value);
+    fd.append("y_thr", $("#sc-ythr").value);
+    fd.append("palette", $("#cmp-palette") ? $("#cmp-palette").value : "fresh");
+    const r = await (await fetch("/api/batch/scatter", { method: "POST", body: fd })).json();
+    if (r.error) { $("#sc-fig").innerHTML = `<p class="flag">${esc(r.error)}</p>`; $("#sc-dl").innerHTML = ""; return; }
+    $("#sc-fig").innerHTML = `<img class="cmpimg" src="${r.figure}" alt="">`;
+    $("#sc-dl").innerHTML = `<a download="scatter.png" href="${r.figure}">Download plot</a>`;
+    const im = $("#sc-fig .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
+  };
+  const scDeb = debounce(doScatter, 250);
+  ["sc-x", "sc-y", "sc-log2", "sc-xthr", "sc-ythr"].forEach(id => { const e = $("#" + id); if (e) { e.onchange = scDeb; e.oninput = scDeb; } });
+  doScatter();
+
+  // ---- positivity (live) ----
+  const posRuleUI = () => {
+    const rl = $("#pos-rule").value;
+    $("#pos-ctrl-wrap").style.display = rl === "absolute" ? "none" : "";
+    $("#pos-k-wrap").style.display = rl === "mean_ksd" ? "" : "none";
+    $("#pos-pct-wrap").style.display = rl === "percentile" ? "" : "none";
+    $("#pos-abs-wrap").style.display = rl === "absolute" ? "" : "none";
+  };
+  // threshold shown as a formula, not as a run-on sentence
+  const formulaHTML = (r) => `<div class="formula">
+      <span class="fx-label">Threshold</span>
+      <span class="fx-val">${esc(r.threshold)}</span>
+      <span class="fx-eq">= ${esc(r.expr || r.rule)}</span>
+      ${r.control ? `<span class="fx-note">control = ${esc(r.control)}</span>` : ""}
+    </div>`;
+
+  const doPos = async () => {
+    if (!RESULT_TOKEN) return;
+    const allMarkers = $("#pos-ch").value === "__all__";
+    $("#pos-out").innerHTML = loadingHTML("computing");
+    const fd = new FormData();
+    fd.append("result_token", RESULT_TOKEN);
+    fd.append("rule", $("#pos-rule").value);
+    fd.append("control", $("#pos-ctrl").value);
+    fd.append("k", $("#pos-k").value);
+    fd.append("percentile", $("#pos-pct").value);
+    fd.append("absolute", $("#pos-abs").value);
+    fd.append("palette", $("#cmp-palette") ? $("#cmp-palette").value : "vivid");
+    if (!allMarkers) fd.append("channel", $("#pos-ch").value);
+    const url = allMarkers ? "/api/batch/positivity_all" : "/api/batch/positivity";
+    const r = await (await fetch(url, { method: "POST", body: fd })).json();
+    if (r.error) { $("#pos-out").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
+
+    let t;
+    if (allMarkers) {
+      // one row per marker, one column per condition: compare the markers directly
+      const conds = r.conditions || [];
+      t = `<div class="formula">
+             <span class="fx-label">Threshold</span>
+             <span class="fx-eq">${esc(r.expr || r.rule)}, per marker</span>
+             ${r.control ? `<span class="fx-note">control = ${esc(r.control)}</span>` : ""}
+           </div>`;
+      t += `<table class="batch" style="max-width:1000px"><thead><tr><th>Marker</th><th class="num">Threshold</th>`;
+      conds.forEach(c => t += `<th class="num raw">${esc(c)}</th>`);
+      t += `</tr></thead><tbody>`;
+      r.channels.forEach(ch => {
+        t += `<tr><td>${esc(ch)}</td><td class="num">${r.thresholds[ch]}</td>`;
+        conds.forEach(c => {
+          const pct = r.percent_positive[ch][c], n = (r.counts[ch] || {})[c];
+          t += `<td class="num">${pct == null ? "" : pct + " %"}`
+             + (n ? `<div class="meta">${n[0]}/${n[1]}</div>` : "") + `</td>`;
+        });
+        t += `</tr>`;
+      });
+      t += `</tbody></table>`;
+    } else {
+      t = formulaHTML(r);
+      t += `<table class="batch" style="max-width:520px"><thead><tr><th>Condition</th>
+            <th class="num">Positive</th><th class="num">Cells</th><th class="num">% positive</th></tr></thead><tbody>`;
+      Object.keys(r.percent_positive).sort().forEach(c => {
+        const n = (r.counts || {})[c] || ["", ""];
+        t += `<tr><td>${esc(c)}</td><td class="num">${n[0]}</td><td class="num">${n[1]}</td>`
+           + `<td class="num">${r.percent_positive[c]}</td></tr>`;
+      });
+      t += `</tbody></table>`;
+    }
+    t += `<div style="margin-top:16px"><img class="cmpimg" src="${r.figure}" alt=""></div>
+          <div class="actionrow"><a download="positivity.png" href="${r.figure}">Download plot</a>
+          <button class="dlcell linkish">Download per-cell CSV (${r.n_cells} cells)</button></div>`;
+    $("#pos-out").innerHTML = t;
+    const im = $("#pos-out .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
+    const dl = $("#pos-out .dlcell"); if (dl) dl.onclick = () => downloadText("cells_positive.csv", r.cell_csv);
+  };
+  const posDebounced = debounce(doPos, 250);
+  $("#pos-rule").onchange = () => { posRuleUI(); posDebounced(); };
+  ["pos-ch", "pos-ctrl", "pos-k", "pos-pct", "pos-abs"].forEach(id => { const e = $("#" + id); if (e) { e.onchange = posDebounced; e.oninput = posDebounced; } });
+  posRuleUI();
+  doPos();
+
+  // the palette applies to all three plots
+  $("#cmp-palette").onchange = () => { plotDebounced(); scDeb(); posDebounced(); };
+}
+
+// load the Set Measurements options once
+fetch("/api/measurements").then(r => r.json()).then(d => {
+  MEAS_OPTIONS = d.measurements || [];
+  if (BSEG.length && !document.querySelector(".measopt")) renderMeasurePanel();
+}).catch(() => {});
+
+// Cellpose speed depends on GPU vs CPU. Shown once, in the header.
+fetch("/api/device").then(r => r.json()).then(d => {
+  GPU_OK = !!d.gpu;
+  const chip = $("#device-chip");
+  chip.classList.remove("hidden");
+  chip.textContent = d.gpu ? `GPU ${d.device}` : "CPU";
+  chip.classList.toggle("cpu", !d.gpu);
+  chip.title = d.gpu ? "Cellpose runs on the GPU" : "No GPU found. Cellpose on CPU is slow.";
+}).catch(() => {});
+
+// ---- Display viewer: per-channel colour, brightness/contrast, segmentation overlay ----
+const Viewer = (() => {
+  let LIST = [], IDX = 0, TOKEN = null, HASM = false;
+  let NAMES = [], COLORS = [], VIS = [], RANGES = [], HISTS = [];
+  // saturated display colours: dim fluorophore colours wash out on a black stage
+  const PALETTE = ["#00a2ff", "#02f26e", "#ff2e63", "#dd00fa", "#ffb300", "#00e5d0"];
+  const natColor = (n) => /dapi|hoechst/i.test(n) ? "#00a2ff"
+    : /488|foxa|gfp|fitc|epcam/i.test(n) ? "#02f26e"
+    : /594|555|nanog|rfp|546|pe\b/i.test(n) ? "#ff2e63"
+    : /647|cy5/i.test(n) ? "#dd00fa"
+    : /^red$/i.test(n) ? "#ff2e63"        // RGB imports (PNG/JPEG) keep their own colour
+    : /^green$/i.test(n) ? "#02f26e"
+    : /^blue$/i.test(n) ? "#00a2ff" : null;
+  const hexRgb = (h) => { const x = h.replace("#", ""); return [parseInt(x.slice(0, 2), 16), parseInt(x.slice(2, 4), 16), parseInt(x.slice(4, 6), 16)]; };
+
+  function open(list, index, hasMasks) {
+    LIST = list || []; IDX = index || 0; HASM = !!hasMasks;
+    $("#viewer").classList.add("show");
+    loadCurrent();
+  }
+  async function loadCurrent() {
+    if (!LIST.length) return;
+    IDX = Math.max(0, Math.min(IDX, LIST.length - 1));
+    const cur = LIST[IDX];
+    TOKEN = cur.token;
+    $("#vw-title").textContent = `${cur.name}   ${IDX + 1}/${LIST.length}`;
+    $("#vw-prev").disabled = IDX <= 0;
+    $("#vw-next").disabled = IDX >= LIST.length - 1;
+    $("#vw-channels").innerHTML = loadingHTML("loading channels");
+    const fd = new FormData(); fd.append("token", TOKEN);
+    let d = {};
+    try { d = await (await fetch("/api/field_hist", { method: "POST", body: fd })).json(); } catch (e) { }
+    HISTS = d.hists || [];
+    NAMES = HISTS.map(h => h.name);
+    COLORS = NAMES.map((n, i) => natColor(n) || PALETTE[i % PALETTE.length]);
+    VIS = NAMES.map(() => true);
+    RANGES = HISTS.map(h => [h.lo, h.hi]);
+    renderSide();
+    doRender();
+  }
+  function drawHist(cv, hist, lo, hi) {
+    const ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+    ctx.clearRect(0, 0, W, H);
+    const c = hist.counts, mx = Math.max(1, ...c), span = (hist.vmax - hist.vmin) || 1;
+    const xlo = (lo - hist.vmin) / span * W, xhi = (hi - hist.vmin) / span * W;
+    ctx.fillStyle = "rgba(224,122,88,0.20)"; ctx.fillRect(xlo, 0, Math.max(1, xhi - xlo), H);
+    ctx.fillStyle = "#b9b6ae";
+    const bw = W / c.length;
+    for (let i = 0; i < c.length; i++) { const bh = Math.sqrt(c[i] / mx) * (H - 2); ctx.fillRect(i * bw, H - bh, Math.max(1, bw - 0.5), bh); }
+    ctx.strokeStyle = "#e07a58"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(xlo, 0); ctx.lineTo(xlo, H); ctx.moveTo(xhi, 0); ctx.lineTo(xhi, H); ctx.stroke();
+  }
+  function redrawHist(i) { const cv = document.querySelector(`.vw-hist[data-i="${i}"]`); if (cv && HISTS[i]) drawHist(cv, HISTS[i], RANGES[i][0], RANGES[i][1]); }
+  function syncCh(i) {
+    const s = (cls) => document.querySelector(`.${cls}[data-i="${i}"]`);
+    [s("vw-lo"), s("vw-lon")].forEach(e => { if (e) e.value = RANGES[i][0]; });
+    [s("vw-hi"), s("vw-hin")].forEach(e => { if (e) e.value = RANGES[i][1]; });
+  }
+  function autoCh(i, skipRender) {
+    if (!HISTS[i]) return;
+    RANGES[i] = [HISTS[i].lo, HISTS[i].hi];   // auto contrast = 1 to 99 percentile
+    syncCh(i); redrawHist(i);
+    if (!skipRender) deb();
+  }
+  function renderSide() {
+    $("#vw-channels").innerHTML = `<h3>Channels</h3>` +
+      `<div class="actionrow" style="margin:2px 0 8px"><button id="vw-autoall" class="sm">Auto contrast, all</button></div>` +
+      NAMES.map((n, i) => {
+        const hh = HISTS[i] || { vmin: 0, vmax: 255 };
+        return `<div class="vw-ch">
+        <div class="chrow"><label style="flex:1"><input type="checkbox" class="vw-vis" data-i="${i}" ${VIS[i] ? "checked" : ""}> ${esc(n)}</label>` +
+          `<input type="color" class="vw-col" data-i="${i}" value="${COLORS[i]}">` +
+          `<button class="vw-auto sm" data-i="${i}" title="auto contrast">Auto</button></div>
+        <canvas class="vw-hist" data-i="${i}" width="220" height="40"></canvas>
+        <div class="vw-mm"><span>min</span><input type="range" class="vw-lo" data-i="${i}" min="0" max="${hh.vmax}" step="any" value="${RANGES[i][0]}"><input type="number" class="vw-lon" data-i="${i}" step="any" value="${RANGES[i][0]}"></div>
+        <div class="vw-mm"><span>max</span><input type="range" class="vw-hi" data-i="${i}" min="0" max="${hh.vmax}" step="any" value="${RANGES[i][1]}"><input type="number" class="vw-hin" data-i="${i}" step="any" value="${RANGES[i][1]}"></div>
+      </div>`;
+      }).join("");
+    $("#vw-seg").innerHTML = HASM ? `<h3>Segmentation overlay</h3>` +
+      `<label><input type="checkbox" class="vw-seg-c" checked> Contours</label>` +
+      `<label><input type="checkbox" class="vw-seg-m"> Masks (filled)</label>` : "";
+    NAMES.forEach((n, i) => redrawHist(i));
+    const setLo = (i, v) => { RANGES[i][0] = v; syncCh(i); redrawHist(i); deb(); };
+    const setHi = (i, v) => { RANGES[i][1] = v; syncCh(i); redrawHist(i); deb(); };
+    document.querySelectorAll("#vw-channels .vw-vis").forEach(el => el.onchange = () => { VIS[+el.dataset.i] = el.checked; deb(); });
+    document.querySelectorAll("#vw-channels .vw-col").forEach(el => el.onchange = () => { COLORS[+el.dataset.i] = el.value; deb(); });
+    document.querySelectorAll("#vw-channels .vw-lo").forEach(el => el.oninput = () => setLo(+el.dataset.i, +el.value));
+    document.querySelectorAll("#vw-channels .vw-lon").forEach(el => el.onchange = () => setLo(+el.dataset.i, +el.value));
+    document.querySelectorAll("#vw-channels .vw-hi").forEach(el => el.oninput = () => setHi(+el.dataset.i, +el.value));
+    document.querySelectorAll("#vw-channels .vw-hin").forEach(el => el.onchange = () => setHi(+el.dataset.i, +el.value));
+    document.querySelectorAll("#vw-channels .vw-auto").forEach(el => el.onclick = () => autoCh(+el.dataset.i));
+    const aa = $("#vw-autoall"); if (aa) aa.onclick = () => { NAMES.forEach((n, i) => autoCh(i, true)); deb(); };
+    document.querySelectorAll('#vw-seg input[type="checkbox"]').forEach(el => el.onchange = deb);
+  }
+  const doRender = async () => {
+    if (!TOKEN) return;
+    const cc = document.querySelector(".vw-seg-c"), mm = document.querySelector(".vw-seg-m");
+    const c = cc && cc.checked, m = mm && mm.checked;
+    const seg = (c && m) ? "both" : c ? "contours" : m ? "masks" : "off";
+    $("#vw-img").style.opacity = .55;
+    const fd = new FormData(); fd.append("token", TOKEN);
+    fd.append("spec", JSON.stringify({ colors: COLORS.map(hexRgb), visible: VIS, ranges: RANGES, seg }));
+    const r = await (await fetch("/api/render", { method: "POST", body: fd })).json();
+    $("#vw-img").style.opacity = 1;
+    if (r.error) { $("#vw-img").removeAttribute("src"); return; }
+    $("#vw-img").src = r.image;
+  };
+  const deb = debounce(doRender, 100);
+  $("#vw-close").onclick = () => $("#viewer").classList.remove("show");
+  $("#vw-prev").onclick = () => { if (IDX > 0) { IDX--; loadCurrent(); } };
+  $("#vw-next").onclick = () => { if (IDX < LIST.length - 1) { IDX++; loadCurrent(); } };
+  return { open };
+})();
+
+function recomputeSummary() {
+  const map = new Map();
+  for (const f of BFIELDS) {
+    const cond = f.condition || "(unassigned)";
+    const row = map.get(cond) || { n: 0, control: false };
+    row.n++; row.control = row.control || !!f.control;
+    map.set(cond, row);
+  }
+  let h = "";
+  for (const [cond, r] of map)
+    h += `<span class="chip ${r.control ? "control" : ""}">${esc(cond)}<span class="c">${r.n} image${r.n > 1 ? "s" : ""}${r.control ? " &middot; control" : ""}</span></span>`;
+  $("#condsummary").innerHTML = h || `<span class="meta">no conditions yet</span>`;
+}
+</script>
+</body>
+</html>
