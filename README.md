@@ -57,10 +57,10 @@ already uses the GPU through MPS.
 ## Run
 
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 8000
+uvicorn app:app --host 127.0.0.1 --port 8010
 ```
 
-Then open http://localhost:8000 in your browser. The first segmentation downloads
+Then open http://127.0.0.1:8010 in your browser. The first segmentation downloads
 the Cellpose-SAM weights (about 1.2 GB); later runs are fast.
 
 ## Quick start
