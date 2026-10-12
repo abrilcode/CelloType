@@ -1,9 +1,10 @@
 """
-Stage 2 segmentation with Cellpose-SAM.
+Stage 2 segmentation with Cellpose-SAM (default) or StarDist (nuclei only).
 
 Segments ONE channel (the one the user chose) into a label image, and renders
-an overlay (mask outlines drawn on that channel) for the viewer. The Cellpose
-model is loaded once and reused.
+an overlay (mask outlines drawn on that channel) for the viewer. Each model is
+loaded once and reused. StarDist is optional: it needs `pip install stardist
+tensorflow`; without it only Cellpose-SAM is offered.
 """
 
 from __future__ import annotations
@@ -15,6 +16,19 @@ import numpy as np
 
 _MODEL = None
 _DEVICE = None   # "mps" | "cuda" | "cpu", detected on first model load
+_SD_MODEL = None
+_SD_DEVICE = None
+
+ENGINES = ("cellpose", "stardist")
+ENGINE_LABELS = {"cellpose": "Cellpose-SAM", "stardist": "StarDist"}
+# StarDist settings = the reference workflow of the agreement study (Multi_Channel_Nuclear_Analysis.ijm,
+# test-pipeline/validation/stardist_segment.py): versatile fluorescent-nuclei model, input normalised to
+# the 1st-99.8th percentiles, probability 0.5, overlap (NMS) 0.4. Objects whose centre is within 2 px of
+# the border are dropped by StarDist itself; the app's own border rule applies on top, as for Cellpose.
+STARDIST_MODEL = "2D_versatile_fluo"
+STARDIST_PROB, STARDIST_NMS = 0.5, 0.4
+STARDIST_PERCENTILES = (1.0, 99.8)
+STARDIST_TILE_ABOVE = 4096   # longer sides are predicted in tiles of about 2048 px
 
 # Resolution cap for segmentation (longest side). Cellpose-SAM is fast on a GPU
 # (incl. Apple MPS) but very slow on CPU, so we cap harder on CPU. Measured on an
@@ -100,7 +114,7 @@ def segment_channel(arr, diameter=None, flow_threshold: float = 0.4,
     masks = np.asarray(masks)
     if info is not None:
         import os
-        info.update(original_size_px=[int(h), int(w)],
+        info.update(engine="cellpose", original_size_px=[int(h), int(w)],
                     processed_size_px=[max(1, int(round(h * scale))), max(1, int(round(w * scale)))],
                     downscale_factor=round(float(scale), 4), max_side_limit=int(max_side),
                     downscale_method=("cellpose_rescale" if scale < 1.0 else None),
@@ -120,6 +134,49 @@ def downscale_note(info: dict):
     why = "no GPU was found" if (info.get("device") or "cpu") == "cpu" else "the image is larger than the size limit"
     return (f"Segmented on a reduced copy (x{f:.2f}, {pw} x {ph} px) because {why}. Small nuclei may be "
             "missed and close nuclei may merge; this setting was not part of the validation.")
+
+
+def stardist_available() -> bool:
+    """True when the optional StarDist engine (stardist + tensorflow) is installed."""
+    import importlib.util
+    return all(importlib.util.find_spec(m) is not None for m in ("stardist", "tensorflow", "csbdeep"))
+
+
+def get_stardist():
+    """Load the StarDist model once (TensorFlow uses its GPU if it has one, else the CPU)."""
+    global _SD_MODEL, _SD_DEVICE
+    if _SD_MODEL is None:
+        import tensorflow as tf
+        from stardist.models import StarDist2D
+        _SD_MODEL = StarDist2D.from_pretrained(STARDIST_MODEL)
+        _SD_DEVICE = "gpu" if tf.config.list_physical_devices("GPU") else "cpu"
+    return _SD_MODEL
+
+
+def segment_stardist(arr, info: dict = None):
+    """Segment nuclei with StarDist (2D_versatile_fluo) at full resolution, with the settings of the
+    reference workflow. Returns an int32 label image (0 = background). No flows: the Cellpose GUI
+    handoff is not available for these masks; the web editor is."""
+    from csbdeep.utils import normalize
+    a = np.asarray(arr)
+    h, w = a.shape[:2]
+    model = get_stardist()
+    norm = normalize(a.astype(np.float32), *STARDIST_PERCENTILES)
+    n_tiles = None
+    if max(h, w) > STARDIST_TILE_ABOVE:
+        n_tiles = (int(np.ceil(h / 2048)), int(np.ceil(w / 2048)))
+    labels, _ = model.predict_instances(norm, prob_thresh=STARDIST_PROB, nms_thresh=STARDIST_NMS, n_tiles=n_tiles,
+                                        show_tile_progress=False)
+    labels = np.asarray(labels).astype(np.int32)
+    if info is not None:
+        info.update(engine="stardist", model=STARDIST_MODEL, device=_SD_DEVICE or "cpu",
+                    original_size_px=[int(h), int(w)], processed_size_px=[int(h), int(w)],
+                    downscale_factor=1.0, downscale_method=None, max_side_limit=None,
+                    flow_threshold=None, cellprob_threshold=None, diameter=None,
+                    prob_thresh=STARDIST_PROB, nms_thresh=STARDIST_NMS,
+                    normalize_percentiles=list(STARDIST_PERCENTILES),
+                    n_tiles=(list(n_tiles) if n_tiles else None))
+    return labels
 
 
 def write_seg_for_gui(image, masks, flows, out_dir: str, base: str):

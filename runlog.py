@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-SCHEMA_VERSION = "1.4"   # 1.1: pixel size (P-03a/b), manual_pixel_size_um; 1.2: input planes (P-04a); 1.3: downscale_method (S-05); 1.4: technical_replicate (P-06a)
+SCHEMA_VERSION = "1.5"   # 1.1: pixel size (P-03a/b), manual_pixel_size_um; 1.2: input planes (P-04a); 1.3: downscale_method (S-05); 1.4: technical_replicate (P-06a); 1.5: engine choice (StarDist)
 APP_NAME = "CelloType"
 APP_VERSION = "2026.10-post-review"
 NOT_REPRODUCIBLE_NOTE = "Masks were edited manually; this run cannot be reproduced from these parameters alone."
@@ -142,11 +142,17 @@ def build_record(workflow: str, fields: list, measurements, columns, subtract_bg
         "reproducible_from_parameters": not edited,
         "reproducibility_note": NOT_REPRODUCIBLE_NOTE if edited else None,
         "software": software_info(),
-        "segmentation_model": {"engine": "cellpose", "model": model_info.get("model"),
+        # Cellpose-SAM keys (flow / cell-probability thresholds, size cap) are null for StarDist, and the
+        # StarDist keys (probability, overlap, normalisation, tiles) are null for Cellpose-SAM
+        "segmentation_model": {"engine": model_info.get("engine") or "cellpose", "model": model_info.get("model"),
                                "device": model_info.get("device"),
                                "flow_threshold": model_info.get("flow_threshold"),
                                "cellprob_threshold": model_info.get("cellprob_threshold"),
-                               "max_side_limit": model_info.get("max_side_limit")},
+                               "max_side_limit": model_info.get("max_side_limit"),
+                               "prob_thresh": model_info.get("prob_thresh"),
+                               "nms_thresh": model_info.get("nms_thresh"),
+                               "normalize_percentiles": model_info.get("normalize_percentiles"),
+                               "n_tiles": model_info.get("n_tiles")},
         "workflow": workflow,
         "fields": fields,
         "measurement": {"measurements": list(measurements) if measurements else None, "columns": list(columns),

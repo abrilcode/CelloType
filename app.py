@@ -199,6 +199,24 @@ def _edge_summary(masks, exclude: bool) -> dict:
             "detected": n, "at_edge": k, "excluded": exc, "kept": n - exc}
 
 
+def _segment(arr, engine: str, seg_type: str, diameter, info: dict):
+    """Run the chosen engine. Returns (masks, flows, error_response_or_None). StarDist segments
+    nuclei only and has no flows; Cellpose-SAM is the default."""
+    engine = (engine or "cellpose").strip().lower()
+    if engine not in segment.ENGINES:
+        return None, None, JSONResponse({"error": f"Unknown segmentation model '{engine}'."}, status_code=400)
+    if engine == "stardist":
+        if seg_type != "nuclei":
+            return None, None, JSONResponse({"error": "StarDist segments nuclei only. Use Cellpose-SAM for whole cells."},
+                                            status_code=400)
+        if not segment.stardist_available():
+            return None, None, JSONResponse({"error": "StarDist is not installed (pip install stardist tensorflow)."},
+                                            status_code=400)
+        return segment.segment_stardist(arr, info=info), None, None
+    masks, flows = segment.segment_channel(arr, diameter=diameter, return_flows=True, info=info)
+    return masks, flows, None
+
+
 def _remember_segmentation(session, masks, info, channel_name):
     """Keep what the run-parameters record needs: the settings used, the time, the automatic
     object count, a copy of the automatic masks (to count manual edits) and an empty edit log."""
@@ -560,7 +578,7 @@ def palette_list():
 @app.get("/api/device")
 def device_info():
     d = segment.probe_device()
-    return JSONResponse({"device": d, "gpu": d != "cpu"})
+    return JSONResponse({"device": d, "gpu": d != "cpu", "stardist": segment.stardist_available()})
 
 
 @app.post("/api/measure_table")
@@ -667,6 +685,10 @@ async def launch_cellpose(token: str = Form(...)):
     if not session or session.get("masks") is None:
         return JSONResponse({"error": "Segment first, then open in Cellpose."}, status_code=410)
     if session.get("flows") is None:
+        if (session.get("seg_info") or {}).get("engine") == "stardist":
+            return JSONResponse({"error": "The Cellpose GUI needs a Cellpose-SAM segmentation. These masks come from "
+                                          "StarDist: edit them in the web editor, or segment with Cellpose-SAM."},
+                                status_code=400)
         return JSONResponse({"error": "Missing segmentation flows; re-run segmentation."}, status_code=400)
     arr = field_channels(session["paths"])[session["seg_channel"]][1]
     base = os.path.splitext(os.path.basename(session["paths"][0]))[0]
@@ -787,9 +809,11 @@ async def set_edge_rule(token: str = Form(...), exclude_edge: str = Form("true")
 @app.post("/api/batch/segment_one")
 async def batch_segment_one(token: str = Form(...), key: str = Form(...),
                             channel: int = Form(...), type: str = Form("nuclei"),
-                            diameter: str = Form(""), exclude_edge: str = Form("true")):
+                            diameter: str = Form(""), exclude_edge: str = Form("true"),
+                            engine: str = Form("cellpose")):
     """Segment ONE batch field on the chosen channel (nuclei OR whole cells). Called
-    once per image. `type` is 'nuclei' or 'cells' and only affects the overlay colour."""
+    once per image. `type` is 'nuclei' or 'cells'; engine 'cellpose' (default) or 'stardist'
+    (nuclei only)."""
     mapping = _BATCH_SESSIONS.get(token)
     if not mapping or key not in mapping:
         return JSONResponse({"error": "Batch session expired. Upload again."}, status_code=410)
@@ -800,7 +824,9 @@ async def batch_segment_one(token: str = Form(...), key: str = Form(...),
     arr = channels[channel][1]
     diam = float(diameter) if diameter.strip() else None
     info = {}
-    masks, flows = segment.segment_channel(arr, diameter=diam, return_flows=True, info=info)
+    masks, flows, err = _segment(arr, engine, type, diam, info)
+    if err:
+        return err
     # each segmented field gets its own single-session so the editor/measurement/viewer reuse works per image
     field_token = uuid.uuid4().hex
     session = {"paths": mapping[key], "masks": masks, "flows": flows, "sources": sources,
@@ -813,6 +839,7 @@ async def batch_segment_one(token: str = Form(...), key: str = Form(...),
                          "downscale": {"factor": info.get("downscale_factor"),
                                        "processed_size_px": info.get("processed_size_px"),
                                        "note": segment.downscale_note(info)},
+                         "engine": info.get("engine"), "device": info.get("device"),
                          "token": field_token})
 
 
@@ -823,6 +850,7 @@ async def single_segment(
     type: str = Form("nuclei"),
     diameter: str = Form(""),
     exclude_edge: str = Form("true"),
+    engine: str = Form("cellpose"),
 ):
     session = _SINGLE_SESSIONS.get(token)
     if not session:
@@ -835,7 +863,9 @@ async def single_segment(
     arr = channels[channel][1]
     diam = float(diameter) if diameter.strip() else None
     info = {}
-    masks, flows = segment.segment_channel(arr, diameter=diam, return_flows=True, info=info)
+    masks, flows, err = _segment(arr, engine, type, diam, info)
+    if err:
+        return err
     session["masks"] = masks
     session["flows"] = flows
     session["seg_channel"] = channel
@@ -849,7 +879,8 @@ async def single_segment(
         "edge": _edge_summary(masks, session["exclude_edge"]),
         "channel": channel,
         "type": type,
-        "device": segment.device_name(),
+        "engine": info.get("engine"),
+        "device": info.get("device"),
         "downscale": {"factor": info.get("downscale_factor"), "processed_size_px": info.get("processed_size_px"),
                       "note": segment.downscale_note(info)},
     })

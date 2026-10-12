@@ -13,6 +13,9 @@ frontend that you run on localhost.
   depth so intensities stay quantitative.
 - Cellpose-SAM segmentation of nuclei or whole cells, using your GPU (NVIDIA
   CUDA or Apple Silicon MPS) when available, otherwise CPU.
+- Optional StarDist (`2D_versatile_fluo`) for nuclei, with the settings of the
+  reference workflow used in the validation. Cellpose-SAM stays the default and
+  is the only option for whole cells.
 - ImageJ style "Set Measurements": area, centroid, mean, integrated density,
   shape descriptors, Feret, and more, per object and per channel.
 - Interactive viewer: per channel colour and brightness/contrast with a
@@ -87,6 +90,19 @@ import buttons in the app:
 pip install "cellpose[gui]"
 ```
 
+## Optional: StarDist for nuclei
+
+```bash
+pip install stardist tensorflow
+```
+
+With StarDist installed, the Segment step offers "Cellpose-SAM" or "StarDist" when
+segmenting nuclei. StarDist runs the `2D_versatile_fluo` model at full resolution with
+the settings of the reference workflow (normalisation to the 1st to 99.8th percentiles,
+probability 0.5, overlap 0.4); TensorFlow uses the CPU unless it has its own GPU support.
+StarDist is not offered for whole cells. Its masks can be corrected in the web editor;
+the Cellpose GUI round trip needs a Cellpose-SAM segmentation.
+
 ## Exported tables: changes after the thesis review
 
 - `at_edge` (0 or 1) after `channel`. Objects touching the image border are left out by default.
@@ -95,8 +111,8 @@ pip install "cellpose[gui]"
   `ellipse_minor_um`, `feret_max_um`) when the pixel size is known; empty otherwise.
 - `replicate` is now `technical_replicate` (batch `measurements.csv` and `cells_positive.csv`).
   It is the field (Foto) number, not a biological replicate.
-- Every table can be saved with a `<table>_parameters.json` file (how it was produced) and the
-  final masks.
+- Every table can be saved with a `<table>_parameters.json` file (how it was produced, including
+  the segmentation model and its settings) and the final masks.
 
 ## Validation
 
@@ -118,6 +134,8 @@ Do not commit microscopy images or patient derived data to the repository; the
 
 - Segmentation: Cellpose-SAM (Stringer and Pachitariu). Please cite Cellpose if
   you use this tool in your work.
+- Optional nuclei segmentation: StarDist (Schmidt et al., MICCAI 2018; Weigert et al.,
+  WACV 2020); cite it when results were produced with the StarDist option.
 
 ## License
 

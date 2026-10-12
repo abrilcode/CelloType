@@ -554,3 +554,7 @@ label.inline { display: inline-flex; align-items: center; gap: 7px; font-size: 1
 .info:hover .info-tip, .info:focus .info-tip, .info:focus-within .info-tip { display: block; }
 .info-tip p { margin: 0 0 6px; } .info-tip p:last-child { margin-bottom: 0; }
 h3 .info, .panel-head .info { margin-left: 8px; }
+.engine-opt { margin: 12px 0; }
+.engine-opt .choices { align-items: center; gap: 4px 18px; }
+.engine-opt .info { margin-left: -12px; }
+.choices label:has(input:disabled) { color: var(--text-3); }
