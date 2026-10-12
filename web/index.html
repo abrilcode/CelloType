@@ -574,7 +574,7 @@ function showWarnings(sel, r) {
 
 // Pixel size line above the measurement table: value and where it came from, per group of images.
 const PX_SOURCE = { "metadata:czi": "from the CZI file", "metadata:ome": "from the OME-TIFF metadata",
-                    "metadata:imagej": "from the ImageJ metadata", "manual": "entered by you" };
+                    "metadata:imagej": "from the ImageJ metadata", "manual": "entered manually" };
 function showCalibration(sel, r) {
   const c = r && r.calibration;
   if (!c || !c.per_image || !c.per_image.length) return;

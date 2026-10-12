@@ -144,9 +144,12 @@ def _px(cal):
     return (cal["x"], cal["y"]) if cal.get("x") else None
 
 
-def _cal_warnings(cals, manual_px=None):
+def _cal_warnings(cals, manual_px=None, columns=None):
     """Warnings about the pixel size: missing, conflicting, mixed across images, non-square,
-    or a manual value that differs from the file's own value (which is used)."""
+    or a manual value that differs from the file's own value (which is used). None when the
+    table has no µm column (e.g. only intensity measurements were selected)."""
+    if columns is not None and not any(c == "area_um2" or c in measure.UM_LENGTH_COLS for c in columns):
+        return []
     out = []
     n = len(cals)
     none = [c["image"] for c in cals if c["source"] == "none"]
@@ -169,7 +172,7 @@ def _cal_warnings(cals, manual_px=None):
     kept = [c for c in cals if c.get("manual_not_used")]
     if kept:
         out.append(f"{len(kept)} image{'s have' if len(kept) != 1 else ' has'} a pixel size in the file "
-                   f"({kept[0]['x']:g} µm), used instead of the value you entered ({manual_px:g} µm).")
+                   f"({kept[0]['x']:g} µm), used instead of the value entered ({manual_px:g} µm).")
     return out
 
 
@@ -393,7 +396,7 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
                  "kept": sum(e["kept"] for e in edge_infos), "per_image": edge_infos},
         "calibration": {"manual": manual_px, "per_image": cal_infos},
         "empty_columns": _empty_columns(rows, cols),
-        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px),
+        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px, cols),
     })
 
 
@@ -439,7 +442,7 @@ async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false")
                  "kept": sum(e["kept"] for e in edge_infos), "per_image": edge_infos},
         "calibration": {"manual": manual_px, "per_image": cal_infos},
         "empty_columns": _empty_columns(allrows, cols),
-        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px),
+        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px, cols),
     })
 
 
