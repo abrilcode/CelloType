@@ -188,6 +188,7 @@ button, .btn {
   transition: background .12s linear, color .12s linear, border-color .12s linear;
 }
 button:hover, .btn:hover { background: var(--text); color: var(--bg); border-color: var(--text); }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 button:disabled, .btn:disabled { opacity: .4; cursor: not-allowed; }
 button:disabled:hover { background: var(--bg-raised); color: var(--text); border-color: var(--rule-mid); }
 .primary { background: var(--text); color: var(--bg); border-color: var(--text); }
@@ -323,7 +324,10 @@ label { font-size: 13px; }
 #workspace { display: grid; grid-template-columns: 288px minmax(0, 1fr); gap: 28px; align-items: start; }
 .controls { min-width: 0; }
 .controls .block:first-child { margin-top: 0; }
-.viewer { min-width: 0; position: sticky; top: calc(var(--head) + var(--stepbar) + 12px); }
+.controls .panel-head { margin-bottom: 20px; }
+.controls .panel-head + .block { margin-top: 0; }
+/* like the batch explorer: starts level with the step heading and stays in place while the rail scrolls */
+.viewer { min-width: 0; position: sticky; top: calc(var(--head) + var(--stepbar) + 34px); }
 #caption {
   display: flex; align-items: baseline; gap: 10px;
   font-family: var(--mono); font-size: 10px; letter-spacing: .05em;
@@ -363,13 +367,12 @@ label { font-size: 13px; }
   border: 1px solid var(--rule); border-left: 2px solid var(--rule-strong); border-radius: 0 var(--r) var(--r) 0;
   padding: 10px 12px; background: var(--bg-sunken); margin-top: 14px; font-size: 12.5px;
 }
-.ctxbar {
-  display: flex; align-items: center; gap: 14px;
-  padding: 10px 0 14px; margin-bottom: 20px; border-bottom: 1px solid var(--rule);
-}
-.ctxbar img { width: 64px; height: 44px; object-fit: cover; background: var(--stage); border-radius: 4px; cursor: zoom-in; }
-.ctxbar .name { font-size: 13.5px; }
-.ctxbar .meta { margin-left: auto; }
+.panel-head .ctx-slot { margin-left: auto; display: flex; align-items: center; gap: 10px; align-self: center; }
+.panel-head .ctx-slot:empty { display: none; }
+.panel-head .ctx-slot img { width: 46px; height: 30px; object-fit: cover; background: var(--stage); border-radius: 4px; cursor: zoom-in; }
+.panel-head .ctx-slot .name { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+.panel-head .ctx-slot .meta { margin-left: 0; }
+.panel-head .ctx-slot + .meta { margin-left: 14px; }
 
 /* ---------------------------------------------------------------- tables */
 table.batch { border-collapse: collapse; font-size: 12.5px; width: 100%; }
@@ -408,9 +411,17 @@ button.rm:hover { color: var(--bg); background: var(--text); border-color: var(-
 .cmp-pickers { display: flex; gap: 40px; flex-wrap: wrap; margin: 4px 0 0; }
 .cmp-pickers label { display: flex; align-items: center; gap: 7px; margin: 3px 0; }
 .plot-wrap { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 28px; align-items: start; margin: 4px 0 30px; }
-.plot-controls > label { display: block; margin: 10px 0; font-size: 12.5px; }
-.plot-controls > label > select, .plot-controls > label > input[type="number"] { width: 100%; margin-top: 3px; }
-.plot-controls > label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 7px; }
+.plot-controls > label {
+  display: block; margin: 0 0 14px; font-family: var(--font); font-size: 10.5px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--text-3);
+}
+.plot-controls > label > select, .plot-controls > label > input[type="number"],
+.plot-controls > label > input[type="text"] { display: block; width: 100%; margin-top: 5px; }
+.plot-controls > label:has(input[type="checkbox"]) {
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 400;
+  text-transform: none; letter-spacing: 0; color: var(--text);
+}
+.plot-controls .note { margin-top: 4px; }
 .plot-preview { min-width: 0; }
 .plot-fig { min-height: 60px; }
 /* no frame around generated figures (kept clean on purpose, see report 2026-08-30) */
@@ -475,6 +486,7 @@ button.rm:hover { color: var(--bg); background: var(--text); border-color: var(-
 
 /* ---------------------------------------------------------------- tabs */
 .tabs { display: flex; gap: 26px; border-bottom: 1px solid var(--rule); margin: 0 0 24px; }
+.note + .tabs { margin-top: 18px; }
 .tab {
   background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
   padding: 0 0 10px; color: var(--text-3);
@@ -531,8 +543,11 @@ label.inline { display: inline-flex; align-items: center; gap: 7px; font-size: 1
 .edge-opt { margin: 10px 0 6px; }
 .edge-opt .note { margin-top: 4px; }
 /* an option and its info icon on one row: the label wraps, the icon stays at its right */
-.edge-opt, .optline, .px-opt { display: flex; align-items: flex-start; }
-.edge-opt .info, .optline .info, .px-opt .info { flex: none; margin-top: 2px; }
+/* the label wraps like text and the icon follows its last word */
+.edge-opt, .optline { display: block; }
+.px-opt { display: flex; align-items: center; }
+.px-opt .info { flex: none; }
+.nocase { text-transform: none; letter-spacing: 0; }
 .px-opt { margin-top: 12px; align-items: center; }
 .px-opt .info { margin-top: 0; }
 .px-opt input { width: 7em; }
@@ -558,3 +573,14 @@ h3 .info, .panel-head .info { margin-left: 8px; }
 .engine-opt .choices { align-items: center; gap: 4px 18px; }
 .engine-opt .info { margin-left: -12px; }
 .choices label:has(input:disabled) { color: var(--text-3); }
+
+/* table toolbar: exports on the left, sorting and the row count on the right */
+.tbar { display: flex; align-items: center; justify-content: space-between; gap: 10px 24px; flex-wrap: wrap; margin: 14px 0 12px; }
+.tbar-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tbar-group .info { margin-left: 4px; }
+
+/* batch measurement settings: the two checklists, then the options, in one row */
+.meas-grid { display: grid; grid-template-columns: auto minmax(260px, 1fr); gap: 24px 72px; align-items: start; }
+.meas-options .optline { margin: 2px 0 14px; }
+.meas-options .px-opt { margin-top: 0; }
+@media (max-width: 900px) { .meas-grid { grid-template-columns: 1fr; } }
