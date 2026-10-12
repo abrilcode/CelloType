@@ -584,3 +584,143 @@ h3 .info, .panel-head .info { margin-left: 8px; }
 .meas-options .optline { margin: 2px 0 14px; }
 .meas-options .px-opt { margin-top: 0; }
 @media (max-width: 900px) { .meas-grid { grid-template-columns: 1fr; } }
+
+/* =================================================================== workbench layout (2026-10-12)
+   App shell: the header across the top, the workflow as a left sidebar, and each section of a step
+   in a white panel on a light grey canvas (the BI-grid structure). Sentence-case labels and buttons,
+   larger type, fewer small grey capitals. Monochrome chrome; colour only in images and plots. */
+:root {
+  --side: 252px; --stepbar: 0px; --top-pad: 34px;
+  --canvas: #F2F2F4; --panel: #FFFFFF; --panel-rule: #E3E3E8; --r: 7px; --r-lg: 10px;
+  --mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23111113'/%3E%3Cpath d='M12.2 4.6c4 0 7.2 2.9 7.2 7.3 0 4.5-3.3 8-7.6 8-4.1 0-7.2-3.2-7.2-7.6 0-4.5 3.2-7.7 7.6-7.7z' fill='none' stroke='white' stroke-width='1.6'/%3E%3Ccircle cx='12' cy='12.2' r='3' fill='white'/%3E%3C/svg%3E");
+}
+:root[data-theme="dark"] {
+  --canvas: #0C0C0E; --panel: #151518; --panel-rule: #26262B;
+  --mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23FAFAFA'/%3E%3Cpath d='M12.2 4.6c4 0 7.2 2.9 7.2 7.3 0 4.5-3.3 8-7.6 8-4.1 0-7.2-3.2-7.2-7.6 0-4.5 3.2-7.7 7.6-7.7z' fill='none' stroke='%23111113' stroke-width='1.6'/%3E%3Ccircle cx='12' cy='12.2' r='3' fill='%23111113'/%3E%3C/svg%3E");
+}
+body { background: var(--canvas); font-size: 14px; }
+
+/* header */
+#topbar { background: var(--panel); border-bottom-color: var(--panel-rule); padding: 0 24px; }
+#topbar .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 15.5px; font-weight: 600; letter-spacing: -.01em; }
+#topbar .brand::before { content: ""; width: 24px; height: 24px; flex: none; background: var(--mark) center / 24px no-repeat; }
+#topbar .brand-sub { margin-left: 4px; padding-left: 14px; border-left: 1px solid var(--panel-rule); }
+#topbar .quiet { font-size: 13px; padding: 7px 10px; border-radius: var(--r); }
+#topbar .quiet:hover { background: var(--hover); }
+
+/* workflow sidebar */
+#steps {
+  top: var(--head); bottom: 0; left: 0; right: auto; width: var(--side); height: auto;
+  flex-direction: column; align-items: stretch; gap: 2px; padding: 22px 14px;
+  background: var(--panel); border-bottom: none; border-right: 1px solid var(--panel-rule);
+}
+.steps-title { font-size: 12px; font-weight: 500; color: var(--text-3); padding: 0 10px 12px; }
+.step {
+  height: auto; min-height: 52px; width: 100%; padding: 8px 10px; gap: 12px; text-align: left;
+  border: 1px solid transparent; border-radius: var(--r); border-bottom: 1px solid transparent;
+  font-size: 13.5px; font-weight: 500; text-transform: none; letter-spacing: 0; line-height: 1.3;
+}
+.step .n {
+  width: 26px; height: 26px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--rule-mid); border-radius: 7px; font-family: var(--mono); font-size: 11px; letter-spacing: 0;
+}
+.step .sl { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.step .sh { font-size: 11.5px; font-weight: 400; color: var(--text-3); }
+.step.is-todo { opacity: .5; }
+.step.is-done:hover { background: var(--hover); border-color: transparent; }
+.step.is-active, .step.is-active:hover { background: var(--canvas); border: 1px solid var(--panel-rule); color: var(--text); }
+.step.is-active .n { background: var(--text); border-color: var(--text); color: var(--panel); }
+.step.is-done .n { border-color: var(--text-3); color: var(--text); }
+
+/* canvas */
+main { max-width: none; padding: calc(var(--head) + var(--top-pad)) 32px 110px calc(var(--side) + 32px); }
+main.no-steps { padding: calc(var(--head) + 72px) 32px 110px; }
+.work-right, .viewer { top: calc(var(--head) + var(--top-pad)); }
+.viewer-inline { height: max(400px, calc(100vh - var(--head) - var(--top-pad) - 118px)); }
+
+/* type */
+h1 { font-size: clamp(30px, 3.2vw, 40px); letter-spacing: -.025em; }
+h2 { font-size: 24px; letter-spacing: -.02em; }
+h3, .kicker { font-size: 13.5px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--text); margin: 0 0 14px; }
+.field > span, .picker-title, .plot-controls > label, .formula .fx-label {
+  font-size: 12.5px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-2);
+}
+.plot-controls > label:has(input[type="checkbox"]) { color: var(--text); }
+.note { font-size: 13px; }
+.meta { font-size: 11px; }
+.panel-head { border-bottom: none; padding-bottom: 0; margin-bottom: 22px; align-items: center; }
+.panel-head .meta { font-family: var(--font); font-size: 12.5px; color: var(--text-3); letter-spacing: 0; }
+
+/* panels: each section of a step is a white panel on the canvas */
+.panel .block, .controls .block, .upload-help, .viewer,
+#segresults:not(:empty), #measure-out:not(:empty), #btable:not(:empty), .plot-wrap {
+  background: var(--panel); border: 1px solid var(--panel-rule); border-radius: var(--r-lg);
+  padding: 20px 22px; margin: 0 0 16px;
+}
+#measure-out-batch:not(:empty) { background: var(--panel); border: 1px solid var(--panel-rule); border-radius: var(--r-lg); padding: 20px 22px; }
+#measure-out-batch:empty { display: none; }
+.controls .block { padding: 18px; }
+.controls .panel-head + .block { margin-top: 0; }
+.viewer { padding: 12px; }
+#bigimg { border: none; border-radius: 6px; max-height: calc(100vh - var(--head) - var(--top-pad) - 140px); }
+#caption { margin: 2px 4px 10px; }
+.block .block { background: none; border: none; padding: 0; }
+.plot-wrap { gap: 28px; }
+.plot-fig img { border-radius: 4px; }
+.upload-grid { gap: 16px; }
+.drop { background: var(--panel); border: 1.5px dashed var(--rule-mid); border-radius: var(--r-lg); min-height: 320px; }
+.drop:hover, .drop.over { background: var(--panel); border-color: var(--text); }
+.viewer-inline { border-color: var(--panel-rule); border-radius: var(--r-lg); background: var(--panel); }
+.vi-head, .vi-views { border-bottom-color: var(--panel-rule); }
+.rowend { border-top: none; padding-top: 0; margin-top: 20px; }
+.tablewrap { border-bottom: none; }
+.tbar { margin-top: 0; }
+
+/* tables */
+table.batch th {
+  font-size: 12px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-2);
+  padding: 0 10px 9px; border-bottom: 1px solid var(--panel-rule);
+}
+table.batch td { border-bottom-color: var(--panel-rule); padding: 10px; }
+table.batch tbody tr:last-child td { border-bottom: none; }
+
+/* buttons and inputs: sentence case, calm hover */
+button, .btn {
+  font-size: 13px; font-weight: 500; text-transform: none; letter-spacing: 0; line-height: 1.1;
+  padding: 9px 14px; background: var(--panel); border-color: var(--rule-mid); border-radius: var(--r);
+}
+button:hover, .btn:hover { background: var(--hover); color: var(--text); border-color: var(--text-3); }
+.primary { background: var(--text); color: var(--panel); border-color: var(--text); }
+.primary:hover { background: #2C2C31; color: #FFFFFF; border-color: #2C2C31; }
+:root[data-theme="dark"] .primary:hover { background: #D6D6DB; color: #111113; border-color: #D6D6DB; }
+.primary:disabled, .primary:disabled:hover { background: var(--hover); color: var(--text-3); border-color: var(--panel-rule); }
+button:disabled:hover { background: var(--panel); color: var(--text); border-color: var(--rule-mid); }
+.sm { padding: 6px 10px; font-size: 12px; }
+input, select, textarea { border-radius: var(--r); padding: 8px 10px; background: var(--panel); }
+.surface button, .surface .btn { background: var(--bg-raised); }
+
+/* landing */
+.start { max-width: 1040px; padding-top: 6vh; }
+.start .lead { font-size: 16.5px; }
+.tile { background: var(--panel); border-color: var(--panel-rule); border-radius: var(--r-lg); padding: 28px 28px 30px; }
+.tile:hover { background: var(--panel); border-color: var(--text); }
+.tile .ti { font-size: 11px; }
+.tile .t { font-size: 19px; }
+.tile .d { font-size: 13.5px; }
+
+/* tabs inside the analysis step sit on the canvas, above their panel */
+.tabs { border-bottom-color: var(--panel-rule); }
+.tab { font-size: 14px; }
+
+/* small screens: the workflow goes back to a row under the header */
+@media (max-width: 900px) {
+  #steps { bottom: auto; right: 0; width: auto; flex-direction: row; overflow-x: auto; padding: 8px 12px;
+    border-right: none; border-bottom: 1px solid var(--panel-rule); }
+  .steps-title, .step .sh { display: none; }
+  .step { min-height: 40px; width: auto; }
+  main { padding: calc(var(--head) + 76px) 16px 80px; }
+}
+#workspace { grid-template-columns: 340px minmax(0, 1fr); gap: 24px; }
+.tbar select { max-width: 170px; }
+.seg-status .note { margin-top: 0; }
+.seg-status .edge-opt { margin-bottom: 0; }
