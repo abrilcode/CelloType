@@ -95,6 +95,7 @@
         <div class="block">
           <div id="bg-sub-single-wrap" class="hidden">
             <label><input type="checkbox" id="bg-sub-single"> Subtract background</label>
+            <p class="note">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn this on only if you decide it suits your images, and keep the same setting for every image you compare, including the controls.</p>
           </div>
           <div class="actionrow"><button id="measure-btn" class="primary hidden">Measure</button></div>
           <div class="rowend"><button class="back">Back</button></div>
@@ -511,8 +512,13 @@ function renderMeasure(sel, r, filename) {
 }
 
 // metric columns offered in the plot builders
+function showWarnings(sel, r) {
+  if (r && r.warnings && r.warnings.length)
+    $(sel).insertAdjacentHTML("afterbegin", r.warnings.map(w => `<p class="flag">${esc(w)}</p>`).join(""));
+}
+
 function metricsOf(columns) {
-  const META = ["image", "condition", "replicate", "object_id", "channel"];
+  const META = ["image", "condition", "replicate", "object_id", "channel", "background"];
   const NONMETRIC = new Set(["centroid_x", "centroid_y", "com_x", "com_y", "bbox_x", "bbox_y", "stack_position"]);
   let m = (columns || []).filter(c => !META.includes(c) && !NONMETRIC.has(c));
   if (m.includes("mean_intensity")) { m = m.filter(x => x !== "mean_intensity"); m.unshift("mean_intensity"); }
@@ -716,6 +722,7 @@ function buildControls(f, rejected, skipped) {
     if (r.error) { $("#measure-out").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
     $("#measure-meta").textContent = r.channels ? `${r.channels.length} channels` : "";
     renderMeasure("#measure-out", r, "measurements.csv");
+    showWarnings("#measure-out", r);
     if (r.result_token) {
       singlePlotPanel(r);
       $("#to-plot").classList.remove("hidden");
@@ -1342,8 +1349,9 @@ function renderMeasurePanel() {
       <span class="meta">${BSEG.length} images &middot; ${total} objects</span></div>
     <div class="block"><h3>Set measurements</h3><div id="meas-set">${measChecklist()}</div>
       <div class="actionrow" style="margin-top:14px">
-        <label><input type="checkbox" id="bg-sub"> Subtract background (median of background pixels)</label>
-      </div></div>
+        <label><input type="checkbox" id="bg-sub"> Subtract background</label>
+      </div>
+      <p class="note">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn this on only if you decide it suits your images, and keep the same setting for every image you compare, including the controls.</p></div>
     <div class="rowend"><button class="back">Back</button>
       <button id="measure-all" class="primary">Measure all</button>
       <button id="to-analyze" class="hidden">Plots and analysis</button></div>
@@ -1362,6 +1370,7 @@ function renderMeasurePanel() {
     if (r.error) { $("#measure-out-batch").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
     RESULT_TOKEN = r.result_token || null;
     renderMeasure("#measure-out-batch", r, "measurements.csv");
+    showWarnings("#measure-out-batch", r);
     buildCompareUI(r.channels || [], r.conditions || [], metricsOf(r.columns));
     Flow.enable("analyze");
     $("#measure-all").classList.remove("primary");
@@ -1447,7 +1456,8 @@ function buildCompareUI(channels, conditions, metrics) {
           <label id="pos-abs-wrap">Value <input type="number" id="pos-abs"></label>
           <div class="note">mean + 2 &times; SD is about the 97.7th percentile of the control
             background, near 2.3% false positives. Use the secondary only control.
-            Each marker gets its own threshold from that control.</div>
+            Each marker gets its own threshold from that control.
+            With background subtraction on, thresholds apply to background-corrected means.</div>
         </div>
         <div class="plot-preview"><div id="pos-out" class="plot-fig"><div class="meta">choose a control condition</div></div></div>
       </div>
