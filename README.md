@@ -11,11 +11,11 @@ frontend that you run on localhost.
 
 - Reads CZI, TIFF (single and multichannel) and PNG/JPEG, keeping native bit
   depth so intensities stay quantitative.
-- Cellpose-SAM segmentation of nuclei or whole cells, using your GPU (NVIDIA
-  CUDA or Apple Silicon MPS) when available, otherwise CPU.
+- Cellpose-SAM segmentation of nuclei, cells or other objects on any channel,
+  using your GPU (NVIDIA CUDA or Apple Silicon MPS) when available, otherwise CPU.
 - Optional StarDist (`2D_versatile_fluo`) for nuclei, with the settings of the
   reference workflow used in the validation. Cellpose-SAM stays the default and
-  is the only option for whole cells.
+  is the only option for cells and other objects.
 - ImageJ style "Set Measurements": area, centroid, mean, integrated density,
   shape descriptors, Feret, and more, per object and per channel.
 - Interactive viewer: per channel colour and brightness/contrast with a
@@ -71,8 +71,8 @@ the Cellpose-SAM weights (about 1.2 GB); later runs are fast.
 Single image:
 
 1. Upload one multichannel file, or the separate single channel files of one field.
-2. Check the channels, pick the nuclei channel, choose Nuclei or Whole cells, and
-   click Segment.
+2. Check the channels, pick the channel to segment (a nuclear stain or any other
+   marker), choose Nuclei or Cells or other objects, and click Segment.
 3. Explore in the viewer, review the per nucleus table, and export the CSV.
 
 Batch:
@@ -100,7 +100,7 @@ With StarDist installed, the Segment step offers "Cellpose-SAM" or "StarDist" wh
 segmenting nuclei. StarDist runs the `2D_versatile_fluo` model at full resolution with
 the settings of the reference workflow (normalisation to the 1st to 99.8th percentiles,
 probability 0.5, overlap 0.4); TensorFlow uses the CPU unless it has its own GPU support.
-StarDist is not offered for whole cells. Its masks can be corrected in the web editor;
+StarDist is not offered for cells or other objects. Its masks can be corrected in the web editor;
 the Cellpose GUI round trip needs a Cellpose-SAM segmentation.
 
 ## Exported tables: changes after the thesis review
