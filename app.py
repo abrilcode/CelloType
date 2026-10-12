@@ -207,7 +207,7 @@ def _segment(arr, engine: str, seg_type: str, diameter, info: dict):
         return None, None, JSONResponse({"error": f"Unknown segmentation model '{engine}'."}, status_code=400)
     if engine == "stardist":
         if seg_type != "nuclei":
-            return None, None, JSONResponse({"error": "StarDist segments nuclei only. Use Cellpose-SAM for whole cells."},
+            return None, None, JSONResponse({"error": "StarDist segments nuclei only. Use Cellpose-SAM for cells and other objects."},
                                             status_code=400)
         if not segment.stardist_available():
             return None, None, JSONResponse({"error": "StarDist is not installed (pip install stardist tensorflow)."},
@@ -811,8 +811,8 @@ async def batch_segment_one(token: str = Form(...), key: str = Form(...),
                             channel: int = Form(...), type: str = Form("nuclei"),
                             diameter: str = Form(""), exclude_edge: str = Form("true"),
                             engine: str = Form("cellpose")):
-    """Segment ONE batch field on the chosen channel (nuclei OR whole cells). Called
-    once per image. `type` is 'nuclei' or 'cells'; engine 'cellpose' (default) or 'stardist'
+    """Segment ONE batch field on the chosen channel (any channel; nuclei OR other objects).
+    Called once per image. `type` is 'nuclei' or 'cells' (cells or any other object); engine 'cellpose' (default) or 'stardist'
     (nuclei only)."""
     mapping = _BATCH_SESSIONS.get(token)
     if not mapping or key not in mapping:
