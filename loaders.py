@@ -117,14 +117,15 @@ def plane_warning(axis: str, n: int, used: int) -> str:
 
 # ---------------------------------------------------------------- CZI
 
-def _czi_sizes(czi) -> dict:
-    """Size of every axis across all scenes (scenes may differ in shape)."""
+def _czi_sizes(czi):
+    """Size and first index of every axis across all scenes (scenes may differ in shape).
+    Indices need not start at 0: a file written by ZEN "Split Scenes" keeps its scene number."""
     lo, hi = {}, {}
     for block in czi.get_dims_shape():
         for d, (a, b) in block.items():
             lo[d] = min(lo.get(d, a), a)
             hi[d] = max(hi.get(d, b), b)
-    return {d: hi[d] - lo[d] for d in hi}
+    return {d: hi[d] - lo[d] for d in hi}, lo
 
 
 def _load_czi(path: str, plane: dict = None) -> LoadedImage:
@@ -132,7 +133,7 @@ def _load_czi(path: str, plane: dict = None) -> LoadedImage:
 
     plane = plane or {}
     czi = CziFile(path)
-    sizes = _czi_sizes(czi)
+    sizes, start = _czi_sizes(czi)
     if sizes.get("M", 1) > 1:
         raise LoadError(
             f"This CZI is a tile scan (mosaic) of {sizes['M']} tiles. CelloType analyses one field of "
@@ -142,7 +143,8 @@ def _load_czi(path: str, plane: dict = None) -> LoadedImage:
     for d, i in want.items():
         if not 0 <= i < sizes[d]:
             raise LoadError(f"Plane {i} on axis {d} does not exist (the file has {sizes[d]}).")
-    data, shape = czi.read_image(**want)   # ndarray + [(dim_char, size), ...]
+    # want holds positions (0 = first plane); the file's own index is start + position
+    data, shape = czi.read_image(**{d: start[d] + i for d, i in want.items()})   # ndarray + [(dim_char, size), ...]
     dims = [d for d, _ in shape]
 
     # Collapse every non-CYX axis by taking index 0 (single scene/tile/z).
