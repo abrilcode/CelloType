@@ -370,12 +370,12 @@ async function downloadMasks(items) {
   a.href = URL.createObjectURL(blob); a.download = m ? m[1] : "masks.zip"; a.click(); URL.revokeObjectURL(a.href);
 }
 
-// Save an artifact (CSV text or base64 image) to the local Output folder set in the
-// top bar. Offered next to every Download; the app is local so the backend writes it.
+// Save an artifact (CSV text or base64 image) to the Output folder chosen in the top bar.
+// The browser writes it (File System Access API); offered next to every Download.
 let OUT_HANDLE = null;   // FileSystemDirectoryHandle when the folder was picked natively
 
 // Open the computer's native folder picker (Chrome/Edge, on localhost). Safari/Firefox
-// do not support it, so there the user types a path and the backend writes the files.
+// do not support it; there the Download buttons are the way to save.
 async function chooseFolder() {
   if (!window.showDirectoryPicker) {
     alert("Your browser cannot open a folder picker. Use Chrome or Edge, or use the Download buttons instead.");
@@ -395,9 +395,8 @@ function _b64ToBytes(dataUri) {
   return arr;
 }
 
-// Save an artifact (CSV text or base64 image) to the chosen Output folder. If the folder
-// was picked natively we write to it directly; otherwise we send a typed path to the local
-// backend. Offered next to every Download, never instead of it.
+// Save an artifact (CSV text or base64 image) to the chosen Output folder, through the
+// browser. Offered next to every Download, never instead of it.
 async function saveToFolder(filename, content, isB64) {
   if (!OUT_HANDLE) {
     alert("Choose an output folder first, with the Choose output folder button in the top bar.");
