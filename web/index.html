@@ -169,7 +169,7 @@
         <div class="block">
           <h3>Conditions</h3>
           <div id="condsummary"></div>
-          <p class="note">Condition is the group you compare. Technical replicate is the field number
+          <p class="note">Condition is the group being compared. Technical replicate is the field number
             (<code>Foto&lt;n&gt;</code>) inside that condition: another imaged position of the sample, not an
             independent biological replicate. Click a thumbnail to inspect the channels.</p>
         </div>
@@ -365,9 +365,12 @@ async function downloadMasks(items) {
   const resp = await fetch("/api/masks", { method: "POST", body: fd });
   if (!resp.ok) { let msg = "Could not download the masks."; try { msg = (await resp.json()).error || msg; } catch (e) {} alert(msg); return; }
   const blob = await resp.blob();
-  const m = (resp.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/);
+  const cd = resp.headers.get("Content-Disposition") || "";
+  const u = cd.match(/filename\*=UTF-8''([^;]+)/i), m = cd.match(/filename="([^"]+)"/);
+  let name = m ? m[1] : "masks.zip";
+  if (u) { try { name = decodeURIComponent(u[1]); } catch (e) {} }
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = m ? m[1] : "masks.zip"; a.click(); URL.revokeObjectURL(a.href);
+  a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
 }
 
 // Save an artifact (CSV text or base64 image) to the Output folder chosen in the top bar.
@@ -503,7 +506,7 @@ function renderMeasure(sel, r, filename, maskItems) {
     let h = `<div class="actionrow"><button class="dlcsv primary">Download CSV</button><button class="savecsv">Save to folder</button>${extra}${sortCtl}
              <span class="meta" style="margin-left:auto">${r.nrows} rows, showing ${Math.min(r.nrows, st.preview.length)}</span></div>`;
     if (r.run_parameters)
-      h += `<p class="note">The parameters file records how this table was produced: versions, segmentation settings, manual mask edits, background, border rule and measurements. Save to folder writes the table and its parameters file together. If you edited masks by hand, also keep the masks: an edited run cannot be reproduced from the parameters alone.</p>`;
+      h += `<p class="note">The parameters file records how this table was produced: versions, segmentation settings, manual mask edits, background, border rule and measurements. Save to folder writes the table and its parameters file together. If masks were edited by hand, keep the masks as well: an edited run cannot be reproduced from the parameters alone.</p>`;
     h += `<div class="tablewrap"><table class="batch"><thead><tr>`;
     r.columns.forEach(c => h += `<th class="${TEXTCOLS.has(c) ? "" : "num"}">${esc(c)}</th>`);
     h += `</tr></thead><tbody>`;
@@ -571,7 +574,7 @@ function showWarnings(sel, r) {
 
 // Pixel size line above the measurement table: value and where it came from, per group of images.
 const PX_SOURCE = { "metadata:czi": "from the CZI file", "metadata:ome": "from the OME-TIFF metadata",
-                    "metadata:imagej": "from the ImageJ metadata", "manual": "entered by you" };
+                    "metadata:imagej": "from the ImageJ metadata", "manual": "entered manually" };
 function showCalibration(sel, r) {
   const c = r && r.calibration;
   if (!c || !c.per_image || !c.per_image.length) return;
