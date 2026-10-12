@@ -146,9 +146,12 @@ def _px(cal):
     return (cal["x"], cal["y"]) if cal.get("x") else None
 
 
-def _cal_warnings(cals, manual_px=None):
+def _cal_warnings(cals, manual_px=None, columns=None):
     """Warnings about the pixel size: missing, conflicting, mixed across images, non-square,
-    or a manual value that differs from the file's own value (which is used)."""
+    or a manual value that differs from the file's own value (which is used). None when the
+    table has no µm column (e.g. only intensity measurements were selected)."""
+    if columns is not None and not any(c == "area_um2" or c in measure.UM_LENGTH_COLS for c in columns):
+        return []
     out = []
     n = len(cals)
     none = [c["image"] for c in cals if c["source"] == "none"]
@@ -171,7 +174,7 @@ def _cal_warnings(cals, manual_px=None):
     kept = [c for c in cals if c.get("manual_not_used")]
     if kept:
         out.append(f"{len(kept)} image{'s have' if len(kept) != 1 else ' has'} a pixel size in the file "
-                   f"({kept[0]['x']:g} µm), used instead of the value you entered ({manual_px:g} µm).")
+                   f"({kept[0]['x']:g} µm), used instead of the value entered ({manual_px:g} µm).")
     return out
 
 
@@ -396,7 +399,7 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
                  "kept": sum(e["kept"] for e in edge_infos), "per_image": edge_infos},
         "calibration": {"manual": manual_px, "per_image": cal_infos},
         "empty_columns": _empty_columns(rows, cols),
-        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px),
+        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px, cols),
     })
 
 
@@ -442,7 +445,7 @@ async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false")
                  "kept": sum(e["kept"] for e in edge_infos), "per_image": edge_infos},
         "calibration": {"manual": manual_px, "per_image": cal_infos},
         "empty_columns": _empty_columns(allrows, cols),
-        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px),
+        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px, cols),
     })
 
 
@@ -750,6 +753,16 @@ async def import_cellpose(token: str = Form(...), file: UploadFile = File(...)):
     })
 
 
+def _attachment(name: str) -> str:
+    """Content-Disposition for a download. HTTP headers only carry ASCII, so non-ASCII file
+    names (Señal, Día) go in filename* (UTF-8, RFC 6266) with an ASCII fallback."""
+    import unicodedata
+    from urllib.parse import quote
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    plain = "".join(ch if ch.isprintable() and ch not in '"\\' else "_" for ch in plain) or "masks.tif"
+    return f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(name)}"
+
+
 @app.post("/api/masks")
 async def download_masks(items: str = Form(...)):
     """Final label masks (after any manual edits), one 16-bit label TIFF per image
@@ -772,7 +785,7 @@ async def download_masks(items: str = Form(...)):
         return JSONResponse({"error": "No masks to download. Segment first (the session may have expired)."}, status_code=410)
     if len(files) == 1:
         name, data = files[0]
-        return Response(data, media_type="image/tiff", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+        return Response(data, media_type="image/tiff", headers={"Content-Disposition": _attachment(name)})
     zbuf = io.BytesIO()
     with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in files:
