@@ -100,12 +100,13 @@ pip install "cellpose[gui]"
 
 ## Validation
 
-CelloType's nuclear segmentation and per-nucleus readouts were benchmarked against
+CelloType's nuclear segmentation and per-nucleus readouts were compared with
 an independent, published StarDist-based nuclei-analysis workflow (StarDist model
 `2D_versatile_fluo`, ImageJ/FIJI) on five datasets. Agreement was high:
 foreground Dice about 0.95, instance F1 at IoU >= 0.5 between 0.94 and 0.97, and
-per-nucleus intensity Pearson r about 0.997 to 0.9996. Details, including the
-datasets and timing, are in [docs/VALIDATION.md](docs/VALIDATION.md).
+per-nucleus intensity Pearson r about 0.997 to 0.9996. This is agreement between
+two automatic methods, not accuracy against manual annotation. Details, including
+the datasets and timing, are in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## Data privacy
 

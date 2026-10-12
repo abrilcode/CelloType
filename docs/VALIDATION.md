@@ -1,8 +1,15 @@
-# Validation: CelloType (Cellpose-SAM) vs a reference StarDist workflow
+# Agreement study: CelloType (Cellpose-SAM) vs a published StarDist workflow
 
 Goal: check that CelloType's nuclear segmentation and per-nucleus marker measurements agree with
 an established, published nuclei-analysis workflow, on the same images, automatically, with
-quantitative metrics and timing. Tested on five datasets; all PASS.
+quantitative metrics and timing. Tested on five datasets; all met the agreement thresholds set
+before the comparison.
+
+**Scope.** This is an agreement study between two automatic methods. The reference is another
+automatic segmentation, not a manual annotation, so the results show that both methods give
+concordant segmentations and readouts on these images; they do not establish the accuracy of
+either method. All runs used the GPU at full resolution (no downscaling), no background
+subtraction, and nuclear segmentation only.
 
 ## Method (shared by all datasets)
 
@@ -14,8 +21,10 @@ The ImageJ plugin wraps the same TensorFlow model, so the segmentation is identi
 FIJI GUI headless is impractical and unnecessary.
 
 **Our method**: `segment.segment_channel` (Cellpose-SAM `cpsam`) on the same DAPI channel, exactly
-as the app runs it, **on the GPU (Apple MPS)** (the harness prints and checks the device). The same
-2 px boundary exclusion is applied to both. Both label sets are measured with the SAME code
+as the app runs it, **on the GPU (Apple MPS)** (the harness prints and checks the device). On top of
+StarDist's own boundary exclusion, objects with any pixel within 3 px of the image border
+(scikit-image `clear_border`, `buffer_size=2`) are removed from both label sets. (The app itself
+now leaves out objects touching the image border by default.) Both label sets are measured with the SAME code
 (`measure.measure_field`), so any difference in the readout comes only from the masks.
 
 **What we measure (and why):**
@@ -25,9 +34,10 @@ as the app runs it, **on the GPU (Apple MPS)** (the harness prints and checks th
 - Measurement agreement: **per-nucleus mean intensity** of each marker on matched nuclei -> Pearson r.
 - Timing: reference (StarDist) vs ours (Cellpose) wall-clock.
 
-Success thresholds: Dice >= 0.85, count r >= 0.90, F1@0.5 >= 0.70, per-marker intensity r >= 0.90.
+Agreement thresholds, set before the comparison: Dice >= 0.85, count r >= 0.90, F1@0.5 >= 0.70,
+per-marker intensity r >= 0.90.
 
-## Summary (5 datasets, all PASS; Cellpose on GPU/MPS)
+## Summary (5 datasets, all within the thresholds; Cellpose on GPU/MPS)
 | Dataset | Fields | Nuclei ref/ours | Dice | F1@IoU.5 | matched IoU | count r | intensity r (markers) | ref s / ours s |
 |---|---|---|---|---|---|---|---|---|
 | Public example set | 16 | 3862 / 3768 | 0.950 | 0.949 | 0.897 | 0.9994 | 0.998 / 0.998 | 8.6 / 178 |
@@ -36,7 +46,7 @@ Success thresholds: Dice >= 0.85, count r >= 0.90, F1@0.5 >= 0.70, per-marker in
 | IF FOXA2/NANOG D0/D7/D15 | 21 | 10729 / 10663 | 0.948 | 0.942 | 0.881 | 0.9996 | 0.997 / 0.998 | 15 / 230 |
 | EpCam Dia 60 (from CZI) | 15 | 2403 / 2304 | 0.964 | 0.949 | 0.921 | 0.9914 | 0.999 / 0.998 | 12.8 / 472 |
 
-All 5 datasets pass every threshold. Dice ~0.95, F1@IoU>=0.5 ~0.94-0.97, per-nucleus marker
+All 5 datasets meet every threshold. Dice ~0.95, F1@IoU>=0.5 ~0.94-0.97, per-nucleus marker
 intensity r ~= 0.997-0.9996. Cellpose ran on Apple MPS (GPU) in every run.
 
 ---
@@ -103,17 +113,19 @@ intensity r AF488 0.9985 / RP647 0.9983. Device mps. Reference 12.8 s / Cellpose
 (these are the largest images, 16-bit full-res, so Cellpose ~31 s/field). **PASS.**
 
 ## Conclusion
-On all FIVE datasets CelloType reproduces the reference nuclear analysis: segmentations are highly
-concordant (Dice ~0.95, F1@IoU>=0.5 0.94-0.97, matched IoU ~0.88-0.92) and per-nucleus marker
-readouts are effectively identical (r ~= 0.997-0.9996). The main practical difference is speed:
+On all FIVE datasets CelloType's results agree closely with the reference nuclear analysis:
+segmentations are highly concordant (Dice ~0.95, F1@IoU>=0.5 0.94-0.97, matched IoU ~0.88-0.92) and
+per-nucleus marker readouts are highly correlated (r ~= 0.997-0.9996). The main practical difference is speed:
 the reference StarDist model (small, here on CPU) is ~15-40x faster than Cellpose-SAM (a large
-transformer on MPS), most pronounced on the large 16-bit images; accuracy is equivalent. Cellpose
+transformer on MPS), most pronounced on the large 16-bit images. Agreement is not accuracy: neither
+method was compared with manual annotations, so this study cannot say which one is closer to the
+true nuclei where they differ. Cellpose
 ran on GPU/MPS in every run (confirmed by the harness printing/checking the device). EpCam CZI
 decoded correctly (no all-zero files).
 
 ## Reproduce
-The comparison harness segments the DAPI channel of each field with both methods, applies the same
-2 px boundary exclusion, matches nuclei one-to-one, and measures every marker with the same code. It
+The comparison harness segments the DAPI channel of each field with both methods, removes objects
+within 3 px of the border from both, matches nuclei one-to-one, and measures every marker with the same code. It
 writes per-image metrics (`per_image_metrics.csv`) and an aggregate summary (`summary.json`) with
-PASS/FAIL against the thresholds above. Reference method: StarDist (`2D_versatile_fluo`) via a
+PASS/FAIL against the agreement thresholds above. Reference method: StarDist (`2D_versatile_fluo`) via a
 published ImageJ/FIJI multichannel nuclear-analysis plugin; ours: Cellpose-SAM (`cpsam`) on the GPU.
