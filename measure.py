@@ -51,6 +51,22 @@ DEFAULT_MEASUREMENTS = ["area", "centroid", "mean", "integrated_density"]
 #                 Kept only to reproduce earlier results; not offered in the UI.
 BG_METHODS = ("object", "pixel_clip")
 
+# Objects that touch the image border are nuclei or cells cut by the field edge: their area
+# and integrated density are low only because part of the object is missing. They are
+# excluded from the results by default (reviewer Pérez, obs. 5); the user can include them.
+EDGE_BAND_PX = 1   # an object is "at the edge" if any of its pixels lies on the outermost row or column
+
+
+def edge_object_ids(masks, band: int = EDGE_BAND_PX):
+    """Labels of the objects with at least one pixel within `band` pixels of the image border
+    (band=1: touching the border)."""
+    m = np.asarray(masks)
+    if m.ndim != 2 or m.size == 0:
+        return set()
+    b = max(1, int(band))
+    ring = np.concatenate([m[:b, :].ravel(), m[-b:, :].ravel(), m[:, :b].ravel(), m[:, -b:].ravel()])
+    return {int(v) for v in np.unique(ring) if v > 0}
+
 # Guard band for the "object" method: pixels within this distance of any object are left
 # out of the background estimate, so blur halos and unsegmented signal next to the objects
 # (for example cytoplasm or membrane around nuclear masks) do not raise B (Waters 2009).
@@ -114,8 +130,9 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
     """
     masks: int label image (0 = background). channels: list of (name, 2D array).
     measurements: list of keys from MEASUREMENTS (None -> DEFAULT_MEASUREMENTS).
-    Returns tidy rows (object x channel), each carrying object_id, channel and the
-    selected measure columns (geometry repeated across a channel's rows).
+    Returns tidy rows (object x channel), each carrying object_id, channel, at_edge (1 if
+    the object touches the image border) and the selected measure columns (geometry
+    repeated across a channel's rows). Edge objects are flagged here, never dropped.
 
     subtract_bg: if True, estimate a background B per channel as the median of the
     pixels in bg_mask and correct with bg_method (see BG_METHODS). Default bg_mask:
@@ -244,10 +261,11 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
         per_ch.append((name, ci, cols, bg))
 
     _round1 = {"intden_sum", "com_x", "com_y", "area_fraction_pct"}
+    edge_ids = edge_object_ids(masks)
     rows = []
     for k, i in enumerate(id_list):
         for name, ci, cols, bg in per_ch:
-            row = {"object_id": i, "channel": name}
+            row = {"object_id": i, "channel": name, "at_edge": 1 if i in edge_ids else 0}
             if subtract_bg:
                 row["background"] = None if bg is None else round(bg, 1)
             row.update(geom[k])

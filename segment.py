@@ -122,7 +122,10 @@ def read_seg_masks(seg_path: str) -> np.ndarray:
 
 
 def count_objects(masks) -> int:
-    return int(np.asarray(masks).max())
+    """Number of objects (distinct labels > 0). Not masks.max(): after editing, labels can
+    have gaps (a deleted object leaves its number unused)."""
+    m = np.asarray(masks)
+    return int(np.count_nonzero(np.unique(m) > 0)) if m.size else 0
 
 
 def _stretch8(arr) -> np.ndarray:
@@ -199,15 +202,22 @@ def read_imported_masks(filename: str, data: bytes) -> np.ndarray:
     return np.asarray(Image.open(io.BytesIO(data))).astype(np.int32)
 
 
-def overlay_png_b64(arr, masks, kind: str = "nuclei", max_side: int = 1200) -> str:
-    """Draw mask outlines on the (stretched) channel and return a base64 PNG."""
+EDGE_OUTLINE = (255, 140, 0)   # objects excluded because they touch the image border
+
+
+def overlay_png_b64(arr, masks, kind: str = "nuclei", max_side: int = 1200, edge_ids=None) -> str:
+    """Draw mask outlines on the (stretched) channel and return a base64 PNG. Objects in
+    edge_ids (excluded at the image border) are outlined in EDGE_OUTLINE instead."""
     from PIL import Image
     from cellpose import utils
 
     base = _stretch8(arr)
     rgb = np.stack([base] * 3, axis=-1)
-    outlines = utils.masks_to_outlines(np.asarray(masks))
+    m = np.asarray(masks)
+    outlines = utils.masks_to_outlines(m)
     rgb[outlines] = OUTLINE_COLORS.get(kind, (0, 255, 255))
+    if edge_ids:
+        rgb[outlines & np.isin(m, list(edge_ids))] = EDGE_OUTLINE
 
     im = Image.fromarray(rgb, "RGB")
     if max(im.size) > max_side:

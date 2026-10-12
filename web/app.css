@@ -511,3 +511,7 @@ label.inline { display: inline-flex; align-items: center; gap: 7px; font-size: 1
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* edge-object option (exclude objects touching the image border) */
+.edge-opt { margin: 10px 0 6px; }
+.edge-opt .note { margin-top: 4px; }
