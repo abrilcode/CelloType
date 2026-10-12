@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# App runtime output (exports for the Cellpose GUI, logs)
+cellpose_edits/
+*.log
+
+# Cellpose model weights live in ~/.cellpose (downloaded on first run), not here.
+
+# OS and editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Private data: never commit microscopy images or datasets.
+# (Remove/override if you intentionally want to ship a small demo image.)
+*.czi
+*.lsm
+*.nd2
+*.tif
+*.tiff
+data/
+uploads/
+examples/
