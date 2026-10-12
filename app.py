@@ -33,17 +33,19 @@ import render
 import runlog
 import segment
 from organize import organize
-from single import inspect_single, field_channels
+from single import inspect_single, field_channels, field_calibration
 
 
 def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="object", bg_infos=None,
-                   exclude_edge=None, edge_infos=None, processed=None):
+                   exclude_edge=None, edge_infos=None, processed=None, manual_px=None, cal_infos=None):
     """Measure a list of {token, image, condition, replicate} into tidy rows (one row
     per segmented object per channel). measurements selects the set (None -> basics).
     The background (when subtract_bg) is estimated per image and channel; if bg_infos is
     a list, one {image, ...} entry per image is appended (see measure.measure_field).
     Objects touching the image border are dropped when exclude_edge is True (None = use each
-    image's own setting); they still count as objects for the background estimate."""
+    image's own setting); they still count as objects for the background estimate.
+    The pixel size comes from each image's metadata, else from manual_px (see _calibration);
+    if cal_infos is a list, one {image, x, y, source} entry per image is appended."""
     allrows = []
     for it in entries:
         session = _SINGLE_SESSIONS.get(it.get("token"))
@@ -51,9 +53,12 @@ def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="obj
             continue
         channels = field_channels(session["paths"])
         info = {}
+        cal = _calibration(session, manual_px)
         rows = measure.measure_field(session["masks"], channels,
                                      subtract_bg=subtract_bg, measurements=measurements,
-                                     bg_method=bg_method, bg_info=info)
+                                     bg_method=bg_method, bg_info=info, pixel_size_um=_px(cal))
+        if cal_infos is not None:
+            cal_infos.append({"image": it.get("image", ""), **cal})
         if bg_infos is not None and info:
             bg_infos.append({"image": it.get("image", ""), **info})
         exc = session.get("exclude_edge", True) if exclude_edge is None else exclude_edge
@@ -61,7 +66,7 @@ def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="obj
         if edge_infos is not None:
             edge_infos.append(e_info)
         if processed is not None:
-            processed.append((it, session, info or None, e_info))
+            processed.append((it, session, info or None, e_info, cal))
         if exc:
             rows = [r for r in rows if not r.get("at_edge")]
         for r in rows:
@@ -94,6 +99,83 @@ def _bg_warnings(infos, on: bool):
             out.append(f"Few background pixels in {inf.get('image', 'an image')} "
                        f"({100 * inf['fraction']:.0f}% of the image): the background estimate is less reliable.")
     return out
+
+
+PIXEL_SIZE_MANUAL_RANGE = (0.01, 100.0)   # µm per pixel accepted in the manual field
+
+
+def _pixel_size_param(value: str):
+    """Parse the optional manual pixel size (µm per pixel). Returns (value_or_None, error_or_None)."""
+    v = (value or "").strip().replace(",", ".")
+    if not v:
+        return None, None
+    lo, hi = PIXEL_SIZE_MANUAL_RANGE
+    try:
+        f = float(v)
+    except ValueError:
+        f = None
+    if f is None or not (lo <= f <= hi):
+        return None, JSONResponse({"error": f"Pixel size must be a number of µm per pixel between {lo:g} and {hi:g}."},
+                                  status_code=400)
+    return f, None
+
+
+def _calibration(session, manual_px=None) -> dict:
+    """Pixel size used for one image: the file's metadata when present (never overridden),
+    else the manual value (source "manual"), else none. Metadata is read once per session."""
+    meta = session.get("calibration")
+    if meta is None:
+        meta = field_calibration(session["paths"])
+        session["calibration"] = meta
+    if meta.get("source", "none") != "none":
+        cal = {"x": meta["x"], "y": meta["y"], "source": meta["source"]}
+        if manual_px is not None and abs(manual_px - meta["x"]) > 0.01 * meta["x"]:
+            cal["manual_not_used"] = True
+        return cal
+    if manual_px is not None:
+        return {"x": manual_px, "y": manual_px, "source": "manual"}
+    cal = {"x": None, "y": None, "source": "none"}
+    if meta.get("conflict"):
+        cal["conflict"] = True
+    return cal
+
+
+def _px(cal):
+    return (cal["x"], cal["y"]) if cal.get("x") else None
+
+
+def _cal_warnings(cals, manual_px=None):
+    """Warnings about the pixel size: missing, conflicting, mixed across images, non-square,
+    or a manual value that differs from the file's own value (which is used)."""
+    out = []
+    n = len(cals)
+    none = [c["image"] for c in cals if c["source"] == "none"]
+    for c in cals:
+        if c.get("conflict"):
+            out.append(f"The channel files of {c['image']} have different pixel sizes in their metadata, "
+                       "so no pixel size was used for it.")
+    if none:
+        names = ", ".join(none[:5]) + (f" and {len(none) - 5} more" if len(none) > 5 else "")
+        out.append(f"No pixel size for {len(none)} of {n} image{'s' if n != 1 else ''} ({names}): "
+                   "their µm columns are empty. Enter the pixel size (µm per pixel) to fill them.")
+    sizes = sorted({c["x"] for c in cals if c["x"]})
+    if len(sizes) > 1 and sizes[-1] - sizes[0] > measure.SQUARE_TOL * sizes[-1]:
+        out.append("The images have different pixel sizes (" + ", ".join(f"{v:g} µm" for v in sizes) +
+                   "): compare sizes in µm, not in pixels.")
+    for c in cals:
+        if c["x"] and not measure.pixels_square((c["x"], c["y"])):
+            out.append(f"{c['image']} has non-square pixels ({c['x']:g} x {c['y']:g} µm): only area_um2 is "
+                       "given in µm; lengths stay in pixels.")
+    kept = [c for c in cals if c.get("manual_not_used")]
+    if kept:
+        out.append(f"{len(kept)} image{'s have' if len(kept) != 1 else ' has'} a pixel size in the file "
+                   f"({kept[0]['x']:g} µm), used instead of the value you entered ({manual_px:g} µm).")
+    return out
+
+
+def _empty_columns(rows, cols):
+    """Columns with no value in any row (e.g. µm columns without a pixel size)."""
+    return [c for c in cols if all(r.get(c) is None for r in rows)]
 
 
 def _flag(value: str, default: bool = True) -> bool:
@@ -261,19 +343,24 @@ async def single_commit(token: str = Form(...), idmap: str = Form(...)):
 @app.post("/api/single/measure")
 async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"),
                          measurements: str = Form(""), bg_method: str = Form("object"),
-                         exclude_edge: str = Form("")):
+                         exclude_edge: str = Form(""), pixel_size_um: str = Form("")):
     session = _SINGLE_SESSIONS.get(token)
     if not session or session.get("masks") is None:
         return JSONResponse({"error": "Segment first, then measure."}, status_code=410)
     bg_on, bg_method, err = _bg_params(subtract_bg, bg_method)
     if err:
         return err
+    manual_px, err = _pixel_size_param(pixel_size_um)
+    if err:
+        return err
     sel = json.loads(measurements) if measurements.strip() else None
     channels = field_channels(session["paths"])
     info = {}
-    rows = measure.measure_field(session["masks"], channels,
-                                 subtract_bg=bg_on, measurements=sel, bg_method=bg_method, bg_info=info)
+    cal = _calibration(session, manual_px)
+    rows = measure.measure_field(session["masks"], channels, subtract_bg=bg_on, measurements=sel,
+                                 bg_method=bg_method, bg_info=info, pixel_size_um=_px(cal))
     image = os.path.splitext(os.path.basename(session["paths"][0]))[0]
+    cal_infos = [{"image": image, **cal}]
     bg_infos = [{"image": image, **info}] if info else []
     if exclude_edge.strip():
         session["exclude_edge"] = _flag(exclude_edge)
@@ -288,9 +375,10 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
     cols = ["image", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     fields = [runlog.field_record(image, session, background=(bg_infos[0] if bg_infos else None),
-                                  edge=edge_infos[0])]
+                                  edge=edge_infos[0], calibration=cal)]
     record = runlog.build_record("single", fields, sel or measure.DEFAULT_MEASUREMENTS, cols, bg_on, bg_method,
-                                 len(rows), session.get("seg_info") or {}, "measurements.csv")
+                                 len(rows), session.get("seg_info") or {}, "measurements.csv",
+                                 manual_pixel_size_um=manual_px)
     _store_result(rtok, rows, record)
     chans = list(dict.fromkeys(r["channel"] for r in rows))
     return JSONResponse({
@@ -303,23 +391,29 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
                  "rule": "touching the image border",
                  "detected": sum(e["detected"] for e in edge_infos), "excluded": sum(e["excluded"] for e in edge_infos),
                  "kept": sum(e["kept"] for e in edge_infos), "per_image": edge_infos},
-        "warnings": _bg_warnings(bg_infos, bg_on),
+        "calibration": {"manual": manual_px, "per_image": cal_infos},
+        "empty_columns": _empty_columns(rows, cols),
+        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px),
     })
 
 
 @app.post("/api/batch/measure")
 async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false"),
                         measurements: str = Form(""), bg_method: str = Form("object"),
-                        exclude_edge: str = Form("")):
+                        exclude_edge: str = Form(""), pixel_size_um: str = Form("")):
     # items = JSON list of {token, image, condition, replicate}
     bg_on, bg_method, err = _bg_params(subtract_bg, bg_method)
     if err:
         return err
+    manual_px, err = _pixel_size_param(pixel_size_um)
+    if err:
+        return err
     sel = json.loads(measurements) if measurements.strip() else None
-    bg_infos, edge_infos, processed = [], [], []
+    bg_infos, edge_infos, processed, cal_infos = [], [], [], []
     exc = _flag(exclude_edge) if exclude_edge.strip() else None
     allrows = _measure_items(json.loads(items), subtract_bg=bg_on, measurements=sel, bg_method=bg_method,
-                             bg_infos=bg_infos, exclude_edge=exc, edge_infos=edge_infos, processed=processed)
+                             bg_infos=bg_infos, exclude_edge=exc, edge_infos=edge_infos, processed=processed,
+                             manual_px=manual_px, cal_infos=cal_infos)
     if not allrows:
         return JSONResponse({"error": "No measurements. Segment the images first, then Measure (the session may have expired)."}, status_code=400)
     chans = list(dict.fromkeys(r["channel"] for r in allrows))
@@ -327,11 +421,11 @@ async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false")
     cols = ["image", "condition", "replicate", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     fields = [runlog.field_record(it.get("image", ""), ses, condition=(it.get("condition") or None),
-                                  replicate=it.get("replicate"), background=bgi, edge=edi)
-              for it, ses, bgi, edi in processed]
+                                  replicate=it.get("replicate"), background=bgi, edge=edi, calibration=cal)
+              for it, ses, bgi, edi, cal in processed]
     record = runlog.build_record("batch", fields, sel or measure.DEFAULT_MEASUREMENTS, cols, bg_on, bg_method,
                                  len(allrows), (processed[0][1].get("seg_info") or {}) if processed else {},
-                                 "measurements.csv")
+                                 "measurements.csv", manual_pixel_size_um=manual_px)
     _store_result(rtok, allrows, record)
     return JSONResponse({
         "result_token": rtok,
@@ -343,7 +437,9 @@ async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false")
                  "rule": "touching the image border",
                  "detected": sum(e["detected"] for e in edge_infos), "excluded": sum(e["excluded"] for e in edge_infos),
                  "kept": sum(e["kept"] for e in edge_infos), "per_image": edge_infos},
-        "warnings": _bg_warnings(bg_infos, bg_on),
+        "calibration": {"manual": manual_px, "per_image": cal_infos},
+        "empty_columns": _empty_columns(allrows, cols),
+        "warnings": _bg_warnings(bg_infos, bg_on) + _cal_warnings(cal_infos, manual_px),
     })
 
 

@@ -245,6 +245,98 @@ def _load_pil(path: str) -> LoadedImage:
     )
 
 
+# ---------------------------------------------------------------- pixel size (spatial calibration)
+
+# Physical length units accepted from metadata, in micrometres per unit. Resolutions in dots
+# per inch (image editors, 72 or 300 dpi) and plain TIFF resolution tags are NOT a calibration.
+_UNIT_UM = {"m": 1e6, "cm": 1e4, "mm": 1e3, "um": 1.0, "µm": 1.0, "μm": 1.0, "\\u00b5m": 1.0,
+            "micron": 1.0, "microns": 1.0, "micrometer": 1.0, "micrometre": 1.0, "nm": 1e-3}
+PIXEL_SIZE_RANGE_UM = (1e-3, 1e3)    # values outside this range are treated as no calibration
+
+
+def _no_calibration():
+    return {"x": None, "y": None, "source": "none"}
+
+
+def _calibration(x_um, y_um, source):
+    lo, hi = PIXEL_SIZE_RANGE_UM
+    try:
+        x, y = float(x_um), float(y_um)
+    except (TypeError, ValueError):
+        return _no_calibration()
+    if not (lo <= x <= hi and lo <= y <= hi):
+        return _no_calibration()
+    return {"x": float(f"{x:.6g}"), "y": float(f"{y:.6g}"), "source": source}
+
+
+def read_pixel_size(path: str) -> dict:
+    """Pixel size in µm from the file's metadata, without reading the pixel data.
+    Returns {"x", "y", "source"}; source is "metadata:czi", "metadata:ome", "metadata:imagej"
+    or "none" (x and y None). PNG/JPEG and TIFFs without a physical unit give "none"."""
+    ext = ext_of(path)
+    try:
+        if ext == ".czi":
+            return _czi_pixel_size(path)
+        if ext in (".tif", ".tiff"):
+            return _tiff_pixel_size(path)
+    except Exception:
+        pass
+    return _no_calibration()
+
+
+def _czi_pixel_size(path: str) -> dict:
+    """CZI: Scaling/Items/Distance[@Id=X|Y]/Value, stored in metres."""
+    from aicspylibczi import CziFile
+
+    vals = {}
+    for d in CziFile(path).meta.iter("Distance"):
+        axis = d.get("Id")
+        v = d.findtext("Value")
+        if axis in ("X", "Y") and v and axis not in vals:
+            vals[axis] = float(v) * 1e6
+    if "X" not in vals:
+        return _no_calibration()
+    return _calibration(vals["X"], vals.get("Y", vals["X"]), "metadata:czi")
+
+
+def _tiff_pixel_size(path: str) -> dict:
+    """OME-TIFF: Pixels PhysicalSizeX/Y with their unit (default µm).
+    ImageJ TIFF: X/YResolution (pixels per unit) with a physical unit in the ImageJ metadata."""
+    import tifffile
+    import xml.etree.ElementTree as ET
+
+    with tifffile.TiffFile(path) as tf:
+        if tf.is_ome and tf.ome_metadata:
+            root = ET.fromstring(tf.ome_metadata)
+            px = next((e for e in root.iter() if e.tag.rsplit("}", 1)[-1] == "Pixels"), None)
+            if px is None or px.get("PhysicalSizeX") is None:
+                return _no_calibration()
+            out = []
+            for ax in ("X", "Y"):
+                v = px.get(f"PhysicalSize{ax}") or px.get("PhysicalSizeX")
+                unit = (px.get(f"PhysicalSize{ax}Unit") or "µm").strip().lower()
+                if unit not in _UNIT_UM:
+                    return _no_calibration()
+                out.append(float(v) * _UNIT_UM[unit])
+            return _calibration(out[0], out[1], "metadata:ome")
+        if tf.is_imagej:
+            unit = str((tf.imagej_metadata or {}).get("unit") or "").strip().lower()
+            if unit not in _UNIT_UM:
+                return _no_calibration()          # uncalibrated ImageJ files say "pixel" or nothing
+            tags = tf.pages[0].tags
+            out = []
+            for name in ("XResolution", "YResolution"):
+                t = tags.get(name) or tags.get("XResolution")
+                if t is None:
+                    return _no_calibration()
+                num, den = t.value
+                if not num:
+                    return _no_calibration()
+                out.append(den / num * _UNIT_UM[unit])   # resolution = pixels per unit
+            return _calibration(out[0], out[1], "metadata:imagej")
+    return _no_calibration()
+
+
 # ---------------------------------------------------------------- previews
 
 def preview_png_b64(arr: np.ndarray, max_side: int = 512) -> str:

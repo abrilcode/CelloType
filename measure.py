@@ -19,18 +19,19 @@ from scipy import ndimage, stats
 # Registry (ordered): key -> (label, category, emitted columns). The order here is
 # also the canonical CSV column order. "geometry" = per object; "intensity" = per channel.
 MEASUREMENTS = {
-    "area":               ("Area", "geometry", ["area_px"]),
+    "area":               ("Area", "geometry", ["area_px", "area_um2"]),
     "mean":               ("Mean gray value", "intensity", ["mean_intensity"]),
     "std":                ("Standard deviation", "intensity", ["std_intensity"]),
     "mode":               ("Modal gray value", "intensity", ["mode_intensity"]),
     "minmax":             ("Min & max gray value", "intensity", ["min_intensity", "max_intensity"]),
     "centroid":           ("Centroid", "geometry", ["centroid_x", "centroid_y"]),
     "center_of_mass":     ("Center of mass", "intensity", ["com_x", "com_y"]),
-    "perimeter":          ("Perimeter", "geometry", ["perimeter"]),
+    "perimeter":          ("Perimeter", "geometry", ["perimeter", "perimeter_um"]),
     "bounding_rect":      ("Bounding rectangle", "geometry", ["bbox_x", "bbox_y", "bbox_w", "bbox_h"]),
-    "fit_ellipse":        ("Fit ellipse", "geometry", ["ellipse_major", "ellipse_minor", "ellipse_angle"]),
+    "fit_ellipse":        ("Fit ellipse", "geometry", ["ellipse_major", "ellipse_minor", "ellipse_angle",
+                                                      "ellipse_major_um", "ellipse_minor_um"]),
     "shape":              ("Shape descriptors", "geometry", ["circularity", "aspect_ratio", "roundness", "solidity"]),
-    "feret":              ("Feret's diameter (max)", "geometry", ["feret_max"]),
+    "feret":              ("Feret's diameter (max)", "geometry", ["feret_max", "feret_max_um"]),
     "integrated_density": ("Integrated density", "intensity", ["intden_sum"]),
     "median":             ("Median", "intensity", ["median_intensity"]),
     "skewness":           ("Skewness", "intensity", ["skewness"]),
@@ -38,6 +39,21 @@ MEASUREMENTS = {
     "area_fraction":      ("Area fraction (>Otsu)", "intensity", ["area_fraction_pct"]),
     "stack_position":     ("Stack position (channel index)", "geometry", ["stack_position"]),
 }
+
+# Physical units (reviewer Pérez, obs. 3): with a pixel size (µm), the size columns are also
+# given in µm / µm²; the pixel columns are kept. Without one, the µm columns are empty.
+# Positions (centroid, center of mass, bounding box) stay in pixels: they locate the object
+# in the image. Shape descriptors and the ellipse angle have no unit.
+# Lengths need square pixels; with non-square pixels only area_um2 is filled.
+UM_LENGTH_COLS = {"perimeter_um": "perimeter", "ellipse_major_um": "ellipse_major",
+                  "ellipse_minor_um": "ellipse_minor", "feret_max_um": "feret_max"}
+SQUARE_TOL = 1e-3      # pixels count as square if x and y differ by at most 0.1 %
+
+
+def pixels_square(pixel_size_um) -> bool:
+    x, y = pixel_size_um
+    return abs(x - y) <= SQUARE_TOL * max(x, y)
+
 
 # The basics are always available and checked by default.
 DEFAULT_MEASUREMENTS = ["area", "centroid", "mean", "integrated_density"]
@@ -126,7 +142,7 @@ def _kurt(v):
 
 def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
                   bg_method: str = "object", bg_mask=None, guard_px: int = BG_GUARD_PX,
-                  bg_info: dict = None):
+                  bg_info: dict = None, pixel_size_um=None):
     """
     masks: int label image (0 = background). channels: list of (name, 2D array).
     measurements: list of keys from MEASUREMENTS (None -> DEFAULT_MEASUREMENTS).
@@ -140,6 +156,9 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
     the legacy "pixel_clip" (unchanged). Each row then carries "background" = B (None when
     no background pixel exists, in which case nothing is subtracted).
     bg_info: optional dict filled with guard_px, n_px, fraction and B per channel.
+
+    pixel_size_um: (x, y) in µm, or None. Fills area_um2 = area_px * x * y and, for square
+    pixels, the length columns in µm (pixel value * x). None leaves the µm columns empty.
     """
     if bg_method not in BG_METHODS:
         raise ValueError(f"bg_method must be one of {BG_METHODS}, got {bg_method!r}")
@@ -168,6 +187,7 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
             cy, cx = cents[k]
             geom[k]["centroid_x"] = round(float(cx), 1)
             geom[k]["centroid_y"] = round(float(cy), 1)
+    raw_len = [dict() for _ in range(n)]     # unrounded pixel lengths, for the µm columns
     if selset & _GEOM_SK:
         from skimage.measure import regionprops
         props = {p.label: p for p in regionprops(masks.astype(np.int32))}
@@ -176,12 +196,15 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
             if p is None:
                 continue
             if "perimeter" in selset:
+                raw_len[k]["perimeter"] = float(p.perimeter)
                 geom[k]["perimeter"] = round(float(p.perimeter), 2)
             if "bounding_rect" in selset:
                 minr, minc, maxr, maxc = p.bbox
                 geom[k].update(bbox_x=int(minc), bbox_y=int(minr),
                                bbox_w=int(maxc - minc), bbox_h=int(maxr - minr))
             if "fit_ellipse" in selset:
+                raw_len[k]["ellipse_major"] = float(p.axis_major_length)
+                raw_len[k]["ellipse_minor"] = float(p.axis_minor_length)
                 geom[k]["ellipse_major"] = round(float(p.axis_major_length), 2)
                 geom[k]["ellipse_minor"] = round(float(p.axis_minor_length), 2)
                 geom[k]["ellipse_angle"] = round(float(np.degrees(p.orientation)), 2)
@@ -195,7 +218,25 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
                 geom[k]["roundness"] = round(4 * a / (np.pi * major * major), 3)
                 geom[k]["solidity"] = round(float(p.solidity), 3)
             if "feret" in selset:
+                raw_len[k]["feret_max"] = float(p.feret_diameter_max)
                 geom[k]["feret_max"] = round(float(p.feret_diameter_max), 2)
+
+    # ---- physical units (µm), next to the pixel columns ----
+    um_cols = [c for c in columns_for(selset) if c == "area_um2" or c in UM_LENGTH_COLS]
+    square = pixel_size_um is not None and pixels_square(pixel_size_um)
+    for k in range(n):
+        for c in um_cols:
+            geom[k][c] = None
+        if pixel_size_um is None:
+            continue
+        px, py = pixel_size_um
+        if "area_um2" in um_cols:
+            geom[k]["area_um2"] = round(float(area[k]) * px * py, 3)
+        if square:
+            for c in um_cols:
+                src = UM_LENGTH_COLS.get(c)
+                if src and src in raw_len[k]:
+                    geom[k][c] = round(raw_len[k][src] * px, 3)
 
     if bg_mask is not None:
         bg_pixels = np.asarray(bg_mask, dtype=bool)
@@ -279,7 +320,7 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
 
 
 def measure_regions(nuclei_masks, cell_labels, channels, subtract_bg: bool = False, measurements=None,
-                    bg_method: str = "object"):
+                    bg_method: str = "object", pixel_size_um=None):
     """
     Measure the selected set in three matched regions per object: the nucleus, the
     cytoplasm ring (cell minus nucleus), and the whole cell. Each row gets a "region"
@@ -295,7 +336,7 @@ def measure_regions(nuclei_masks, cell_labels, channels, subtract_bg: bool = Fal
     out = []
     for region, lab in (("nucleus", nuclei), ("cytoplasm", ring), ("cell", cells)):
         for r in measure_field(lab, channels, subtract_bg=subtract_bg, measurements=measurements,
-                               bg_method=bg_method, bg_mask=bg_mask):
+                               bg_method=bg_method, bg_mask=bg_mask, pixel_size_um=pixel_size_um):
             r["region"] = region
             out.append(r)
     return out

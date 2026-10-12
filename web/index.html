@@ -100,6 +100,8 @@
           <div id="bg-sub-single-wrap" class="hidden">
             <label><input type="checkbox" id="bg-sub-single"> Subtract background</label>
             <p class="note">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn this on only if you decide it suits your images, and keep the same setting for every image you compare, including the controls.</p>
+            <label class="inline px-opt">Pixel size <input type="text" id="px-single" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label>
+            <p class="note" id="px-single-note"></p>
           </div>
           <div class="actionrow"><button id="measure-btn" class="primary hidden">Measure</button></div>
           <div class="rowend"><button class="back">Back</button></div>
@@ -567,17 +569,51 @@ function showWarnings(sel, r) {
     $(sel).insertAdjacentHTML("afterbegin", r.warnings.map(w => `<p class="flag">${esc(w)}</p>`).join(""));
 }
 
-function metricsOf(columns) {
+// Pixel size line above the measurement table: value and where it came from, per group of images.
+const PX_SOURCE = { "metadata:czi": "from the CZI file", "metadata:ome": "from the OME-TIFF metadata",
+                    "metadata:imagej": "from the ImageJ metadata", "manual": "entered by you" };
+function showCalibration(sel, r) {
+  const c = r && r.calibration;
+  if (!c || !c.per_image || !c.per_image.length) return;
+  const n = c.per_image.length, groups = new Map();
+  c.per_image.forEach(p => {
+    const k = p.source === "none" ? "none (sizes in pixels only)"
+      : `${p.x === p.y ? p.x : p.x + " x " + p.y} µm, ${PX_SOURCE[p.source] || p.source}`;
+    groups.set(k, (groups.get(k) || 0) + 1);
+  });
+  const parts = [...groups].map(([k, v]) => n > 1 ? `${k} (${v} of ${n} images)` : k);
+  $(sel).insertAdjacentHTML("afterbegin", `<p class="note">Pixel size: ${esc(parts.join("; "))}. Positions stay in pixels.</p>`);
+}
+
+// Single image: what the file says about its pixel size, shown next to the manual field.
+function pixelSizeNote(ps) {
+  const inp = $("#px-single"), note = $("#px-single-note");
+  if (!inp || !note) return;
+  inp.value = "";
+  if (ps && ps.source && ps.source !== "none") {
+    inp.disabled = true;
+    inp.placeholder = String(ps.x === ps.y ? ps.x : ps.x + " x " + ps.y);
+    note.textContent = `This file carries its pixel size (${ps.x === ps.y ? ps.x : ps.x + " x " + ps.y} µm, ${PX_SOURCE[ps.source] || ps.source}), so sizes are also given in µm and µm². Pixel columns are kept, and positions stay in pixels.`;
+  } else {
+    inp.disabled = false;
+    inp.placeholder = "";
+    note.textContent = (ps && ps.conflict ? "The channel files disagree on the pixel size, so none is used. " : "This file has no pixel size in its metadata, so sizes are in pixels. ")
+      + "Optional: enter the pixel size from the microscope or a calibration slide to also get the sizes in µm and µm². Pixel columns are kept, and positions stay in pixels.";
+  }
+}
+
+function metricsOf(columns, empty) {
   const META = ["image", "condition", "replicate", "object_id", "channel", "background", "at_edge"];
   const NONMETRIC = new Set(["centroid_x", "centroid_y", "com_x", "com_y", "bbox_x", "bbox_y", "stack_position"]);
-  let m = (columns || []).filter(c => !META.includes(c) && !NONMETRIC.has(c));
+  const EMPTY = new Set(empty || []);   // e.g. µm columns without a pixel size
+  let m = (columns || []).filter(c => !META.includes(c) && !NONMETRIC.has(c) && !EMPTY.has(c));
   if (m.includes("mean_intensity")) { m = m.filter(x => x !== "mean_intensity"); m.unshift("mean_intensity"); }
   return m;
 }
 
 // Single image plot: per-channel distribution of the measured metric.
 function singlePlotPanel(r) {
-  const metrics = metricsOf(r.columns);
+  const metrics = metricsOf(r.columns, r.empty_columns);
   $("#single-plot-out").innerHTML = `
     <div class="plot-wrap">
       <div class="plot-controls">
@@ -762,6 +798,7 @@ function buildControls(f, rejected, skipped) {
   // Measure (hidden until a segmentation exists)
   $("#measure-btn").classList.add("hidden");
   $("#bg-sub-single-wrap").classList.add("hidden");
+  pixelSizeNote(f.pixel_size);
   $("#measure-out").innerHTML = "";
   $("#measure-meta").textContent = "";
   $("#single-plot-out").innerHTML = "";
@@ -773,11 +810,13 @@ function buildControls(f, rejected, skipped) {
     $("#measure-out").innerHTML = loadingHTML("measuring every channel inside each object");
     const fd = new FormData(); fd.append("token", SINGLE_TOKEN);
     fd.append("subtract_bg", $("#bg-sub-single").checked ? "true" : "false");
+    fd.append("pixel_size_um", $("#px-single").disabled ? "" : $("#px-single").value.trim());
     fd.append("exclude_edge", $("#edge-single").checked ? "true" : "false");
     const r = await (await fetch("/api/single/measure", { method: "POST", body: fd })).json();
     if (r.error) { $("#measure-out").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
     $("#measure-meta").textContent = r.channels ? `${r.channels.length} channels` : "";
     renderMeasure("#measure-out", r, "measurements.csv", [{ token: SINGLE_TOKEN, image: SINGLE_NAME }]);
+    showCalibration("#measure-out", r);
     showEdgeSummary("#measure-out", r);
     showWarnings("#measure-out", r);
     if (r.result_token) {
@@ -1443,7 +1482,9 @@ function renderMeasurePanel() {
       <div class="actionrow" style="margin-top:14px">
         <label><input type="checkbox" id="bg-sub"> Subtract background</label>
       </div>
-      <p class="note">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn this on only if you decide it suits your images, and keep the same setting for every image you compare, including the controls.</p></div>
+      <p class="note">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn this on only if you decide it suits your images, and keep the same setting for every image you compare, including the controls.</p>
+      <label class="inline px-opt">Pixel size <input type="text" id="px-batch" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label>
+      <p class="note">Optional. Sizes are given in µm and µm² for every image whose file carries a pixel size (CZI, OME-TIFF, ImageJ TIFF). For images without one, enter the pixel size from the microscope or a calibration slide; it is used only for those images and never replaces a pixel size stored in a file. Pixel columns are always kept, and positions stay in pixels.</p></div>
     <div class="rowend"><button class="back">Back</button>
       <button id="measure-all" class="primary">Measure all</button>
       <button id="to-analyze" class="hidden">Plots and analysis</button></div>
@@ -1457,15 +1498,17 @@ function renderMeasurePanel() {
     $("#measure-out-batch").innerHTML = loadingHTML("measuring every channel inside each object");
     const fd = new FormData(); fd.append("items", JSON.stringify(items));
     fd.append("subtract_bg", $("#bg-sub") && $("#bg-sub").checked ? "true" : "false");
+    fd.append("pixel_size_um", $("#px-batch") ? $("#px-batch").value.trim() : "");
     fd.append("exclude_edge", EDGE_EXCLUDE ? "true" : "false");
     fd.append("measurements", JSON.stringify(MEAS_SEL));
     const r = await (await fetch("/api/batch/measure", { method: "POST", body: fd })).json();
     if (r.error) { $("#measure-out-batch").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
     RESULT_TOKEN = r.result_token || null;
     renderMeasure("#measure-out-batch", r, "measurements.csv", BSEG.map(s => ({ token: s.token, image: s.key })));
+    showCalibration("#measure-out-batch", r);
     showEdgeSummary("#measure-out-batch", r);
     showWarnings("#measure-out-batch", r);
-    buildCompareUI(r.channels || [], r.conditions || [], metricsOf(r.columns));
+    buildCompareUI(r.channels || [], r.conditions || [], metricsOf(r.columns, r.empty_columns));
     Flow.enable("analyze");
     $("#measure-all").classList.remove("primary");
     $("#to-analyze").classList.remove("hidden");
