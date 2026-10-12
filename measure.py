@@ -42,6 +42,34 @@ MEASUREMENTS = {
 # The basics are always available and checked by default.
 DEFAULT_MEASUREMENTS = ["area", "centroid", "mean", "integrated_density"]
 
+# Background subtraction methods (only used when subtract_bg is True).
+#   "object":     B = median of the background pixels; subtracted from each object's
+#                 mean (mean - B) and integrated density (IntDen - area * B), not clipped.
+#                 Every other intensity measurement uses the native pixel values.
+#   "pixel_clip": legacy behaviour (thesis version, Aug 2026): B is subtracted from every
+#                 pixel and each pixel is clipped at 0 before ALL intensity measurements.
+#                 Kept only to reproduce earlier results; not offered in the UI.
+BG_METHODS = ("object", "pixel_clip")
+
+# Guard band for the "object" method: pixels within this distance of any object are left
+# out of the background estimate, so blur halos and unsegmented signal next to the objects
+# (for example cytoplasm or membrane around nuclear masks) do not raise B (Waters 2009).
+BG_GUARD_PX = 5
+BG_MIN_FRACTION = 0.10   # warn when fewer background pixels than this fraction remain
+
+
+def background_mask(masks, guard_px: int = BG_GUARD_PX):
+    """Pixels used to estimate the background: outside every object, minus a guard band of
+    guard_px pixels around the objects. If the guard band leaves no pixel (very crowded
+    field), fall back to all pixels outside the objects."""
+    fg = np.asarray(masks) > 0
+    bg = ~fg
+    if guard_px and guard_px > 0 and fg.any():
+        guarded = ~ndimage.binary_dilation(fg, iterations=int(guard_px))
+        if guarded.any():
+            bg = guarded
+    return bg
+
 _GEOM_SK = {"perimeter", "bounding_rect", "fit_ellipse", "shape", "feret"}   # need scikit-image
 
 
@@ -51,10 +79,11 @@ def measurement_options():
              "default": k in DEFAULT_MEASUREMENTS} for k, v in MEASUREMENTS.items()]
 
 
-def columns_for(measurements):
-    """Ordered measure-column names for a selection (canonical registry order)."""
+def columns_for(measurements, background: bool = False):
+    """Ordered measure-column names for a selection (canonical registry order).
+    background=True puts the "background" column (value subtracted) first."""
     sel = set(measurements or DEFAULT_MEASUREMENTS)
-    cols = []
+    cols = ["background"] if background else []
     for k, v in MEASUREMENTS.items():
         if k in sel:
             cols += v[2]
@@ -79,16 +108,24 @@ def _kurt(v):
     return float(stats.kurtosis(v)) if v.size > 3 and v.std() > 0 else 0.0
 
 
-def measure_field(masks, channels, subtract_bg: bool = False, measurements=None):
+def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
+                  bg_method: str = "object", bg_mask=None, guard_px: int = BG_GUARD_PX,
+                  bg_info: dict = None):
     """
     masks: int label image (0 = background). channels: list of (name, 2D array).
     measurements: list of keys from MEASUREMENTS (None -> DEFAULT_MEASUREMENTS).
     Returns tidy rows (object x channel), each carrying object_id, channel and the
     selected measure columns (geometry repeated across a channel's rows).
 
-    subtract_bg: if True, subtract a per-channel background (median of the pixels
-    outside all objects) from that channel before measuring (clamped at 0).
+    subtract_bg: if True, estimate a background B per channel as the median of the
+    pixels in bg_mask and correct with bg_method (see BG_METHODS). Default bg_mask:
+    background_mask(masks, guard_px) for "object"; all pixels outside the objects for
+    the legacy "pixel_clip" (unchanged). Each row then carries "background" = B (None when
+    no background pixel exists, in which case nothing is subtracted).
+    bg_info: optional dict filled with guard_px, n_px, fraction and B per channel.
     """
+    if bg_method not in BG_METHODS:
+        raise ValueError(f"bg_method must be one of {BG_METHODS}, got {bg_method!r}")
     selset = set(measurements) if measurements else set(DEFAULT_MEASUREMENTS)
     masks = np.asarray(masks)
     ids = np.unique(masks)
@@ -143,15 +180,30 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None)
             if "feret" in selset:
                 geom[k]["feret_max"] = round(float(p.feret_diameter_max), 2)
 
-    bg_pixels = masks == 0
+    if bg_mask is not None:
+        bg_pixels = np.asarray(bg_mask, dtype=bool)
+        used_guard = None
+    elif bg_method == "object":
+        bg_pixels = background_mask(masks, guard_px)
+        used_guard = int(guard_px) if (bg_pixels.sum() < (masks == 0).sum()) else 0
+    else:
+        bg_pixels = masks == 0
+        used_guard = 0
+    if bg_info is not None and subtract_bg:
+        bg_info.update(method=bg_method, guard_px=used_guard, n_px=int(bg_pixels.sum()),
+                       fraction=round(float(bg_pixels.mean()), 4), per_channel={})
 
     # ---- intensity (per object per channel) ----
     per_ch = []
     for ci, (name, arr) in enumerate(channels):
         a = np.asarray(arr).astype(np.float64)
+        bg = None
         if subtract_bg and bg_pixels.any():
             bg = float(np.median(a[bg_pixels]))
-            a = np.clip(a - bg, 0.0, None)
+            if bg_method == "pixel_clip":
+                a = np.clip(a - bg, 0.0, None)
+        if bg_info is not None and subtract_bg:
+            bg_info["per_channel"][name] = None if bg is None else round(bg, 1)
         cols = {}
         if "mean" in selset:
             cols["mean_intensity"] = np.atleast_1d(ndimage.mean(a, masks, index=ids))
@@ -183,13 +235,21 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None)
             except Exception:
                 thr = float(a.mean())
             cols["area_fraction_pct"] = np.atleast_1d(ndimage.mean((a > thr).astype(np.float64), masks, index=ids)) * 100.0
-        per_ch.append((name, ci, cols))
+        if bg is not None and bg_method == "object":
+            # object-level correction, before rounding; not clipped (may be negative)
+            if "mean_intensity" in cols:
+                cols["mean_intensity"] = cols["mean_intensity"] - bg
+            if "intden_sum" in cols:
+                cols["intden_sum"] = cols["intden_sum"] - area * bg
+        per_ch.append((name, ci, cols, bg))
 
     _round1 = {"intden_sum", "com_x", "com_y", "area_fraction_pct"}
     rows = []
     for k, i in enumerate(id_list):
-        for name, ci, cols in per_ch:
+        for name, ci, cols, bg in per_ch:
             row = {"object_id": i, "channel": name}
+            if subtract_bg:
+                row["background"] = None if bg is None else round(bg, 1)
             row.update(geom[k])
             for col, arr in cols.items():
                 v = float(arr[k])
@@ -200,19 +260,24 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None)
     return rows
 
 
-def measure_regions(nuclei_masks, cell_labels, channels, subtract_bg: bool = False, measurements=None):
+def measure_regions(nuclei_masks, cell_labels, channels, subtract_bg: bool = False, measurements=None,
+                    bg_method: str = "object"):
     """
     Measure the selected set in three matched regions per object: the nucleus, the
     cytoplasm ring (cell minus nucleus), and the whole cell. Each row gets a "region"
     field. Objects with an empty cytoplasm ring simply have no "cytoplasm" rows.
+    The background is estimated once, outside both nuclei and cells, and shared by the
+    three regions (estimating it per region would treat cytoplasm as background).
     """
     nuclei = np.asarray(nuclei_masks)
     cells = np.asarray(cell_labels)
     ring = cells.copy()
     ring[nuclei > 0] = 0
+    bg_mask = background_mask((nuclei > 0) | (cells > 0), BG_GUARD_PX if bg_method == "object" else 0)
     out = []
     for region, lab in (("nucleus", nuclei), ("cytoplasm", ring), ("cell", cells)):
-        for r in measure_field(lab, channels, subtract_bg=subtract_bg, measurements=measurements):
+        for r in measure_field(lab, channels, subtract_bg=subtract_bg, measurements=measurements,
+                               bg_method=bg_method, bg_mask=bg_mask):
             r["region"] = region
             out.append(r)
     return out

@@ -35,23 +35,53 @@ from organize import organize
 from single import inspect_single, field_channels
 
 
-def _measure_items(entries, subtract_bg=False, measurements=None):
+def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="object", bg_infos=None):
     """Measure a list of {token, image, condition, replicate} into tidy rows (one row
-    per segmented object per channel). measurements selects the set (None -> basics)."""
+    per segmented object per channel). measurements selects the set (None -> basics).
+    The background (when subtract_bg) is estimated per image and channel; if bg_infos is
+    a list, one {image, ...} entry per image is appended (see measure.measure_field)."""
     allrows = []
     for it in entries:
         session = _SINGLE_SESSIONS.get(it.get("token"))
         if not session or session.get("masks") is None:
             continue
         channels = field_channels(session["paths"])
+        info = {}
         rows = measure.measure_field(session["masks"], channels,
-                                     subtract_bg=subtract_bg, measurements=measurements)
+                                     subtract_bg=subtract_bg, measurements=measurements,
+                                     bg_method=bg_method, bg_info=info)
+        if bg_infos is not None and info:
+            bg_infos.append({"image": it.get("image", ""), **info})
         for r in rows:
             r["image"] = it.get("image", "")
             r["condition"] = it.get("condition") or ""
             r["replicate"] = "" if it.get("replicate") is None else it.get("replicate")
         allrows += rows
     return allrows
+
+
+def _bg_params(subtract_bg: str, bg_method: str):
+    """Parse the background form fields. Returns (on, method, error_response_or_None)."""
+    on = (subtract_bg == "true")
+    if bg_method not in measure.BG_METHODS:
+        return on, bg_method, JSONResponse(
+            {"error": f"bg_method must be one of {', '.join(measure.BG_METHODS)}."}, status_code=400)
+    return on, bg_method, None
+
+
+def _bg_warnings(infos, on: bool):
+    """Warnings about the background estimate, one per affected image."""
+    out = []
+    if not on:
+        return out
+    for inf in infos:
+        if not inf.get("n_px"):
+            out.append(f"Background subtraction was skipped for {inf.get('image', 'an image')}: "
+                       "no pixels outside the objects.")
+        elif inf.get("fraction", 1) < measure.BG_MIN_FRACTION:
+            out.append(f"Few background pixels in {inf.get('image', 'an image')} "
+                       f"({100 * inf['fraction']:.0f}% of the image): the background estimate is less reliable.")
+    return out
 
 
 def _rows_csv(rows, columns) -> str:
@@ -168,20 +198,25 @@ async def single_commit(token: str = Form(...), idmap: str = Form(...)):
 
 @app.post("/api/single/measure")
 async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"),
-                         measurements: str = Form("")):
+                         measurements: str = Form(""), bg_method: str = Form("object")):
     session = _SINGLE_SESSIONS.get(token)
     if not session or session.get("masks") is None:
         return JSONResponse({"error": "Segment first, then measure."}, status_code=410)
+    bg_on, bg_method, err = _bg_params(subtract_bg, bg_method)
+    if err:
+        return err
     sel = json.loads(measurements) if measurements.strip() else None
     channels = field_channels(session["paths"])
+    info = {}
     rows = measure.measure_field(session["masks"], channels,
-                                 subtract_bg=(subtract_bg == "true"), measurements=sel)
+                                 subtract_bg=bg_on, measurements=sel, bg_method=bg_method, bg_info=info)
     image = os.path.splitext(os.path.basename(session["paths"][0]))[0]
+    bg_infos = [{"image": image, **info}] if info else []
     for r in rows:
         r["image"] = image
         r["condition"] = image     # one "condition" so the per-channel plot can group
         r["replicate"] = 1
-    cols = ["image", "object_id", "channel"] + measure.columns_for(sel)
+    cols = ["image", "object_id", "channel"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     _MEASURE_RESULTS[rtok] = rows
     if len(_MEASURE_RESULTS) > 8:
@@ -191,20 +226,27 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
         "result_token": rtok, "channels": chans,
         "columns": cols, "preview": rows[:100], "nrows": len(rows),
         "csv": _rows_csv(rows, cols),
+        "params": {"subtract_bg": bg_on, "bg_method": bg_method if bg_on else None, "background": bg_infos},
+        "warnings": _bg_warnings(bg_infos, bg_on),
     })
 
 
 @app.post("/api/batch/measure")
 async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false"),
-                        measurements: str = Form("")):
+                        measurements: str = Form(""), bg_method: str = Form("object")):
     # items = JSON list of {token, image, condition, replicate}
+    bg_on, bg_method, err = _bg_params(subtract_bg, bg_method)
+    if err:
+        return err
     sel = json.loads(measurements) if measurements.strip() else None
-    allrows = _measure_items(json.loads(items), subtract_bg=(subtract_bg == "true"), measurements=sel)
+    bg_infos = []
+    allrows = _measure_items(json.loads(items), subtract_bg=bg_on, measurements=sel, bg_method=bg_method,
+                             bg_infos=bg_infos)
     if not allrows:
         return JSONResponse({"error": "No measurements. Segment the images first, then Measure (the session may have expired)."}, status_code=400)
     chans = list(dict.fromkeys(r["channel"] for r in allrows))
     conds = list(dict.fromkeys(r["condition"] for r in allrows))
-    cols = ["image", "condition", "replicate", "object_id", "channel"] + measure.columns_for(sel)
+    cols = ["image", "condition", "replicate", "object_id", "channel"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     _MEASURE_RESULTS[rtok] = allrows
     if len(_MEASURE_RESULTS) > 8:                         # keep only recent results
@@ -213,6 +255,8 @@ async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false")
         "result_token": rtok,
         "columns": cols, "preview": allrows[:100], "nrows": len(allrows),
         "csv": _rows_csv(allrows, cols), "channels": chans, "conditions": conds,
+        "params": {"subtract_bg": bg_on, "bg_method": bg_method if bg_on else None, "background": bg_infos},
+        "warnings": _bg_warnings(bg_infos, bg_on),
     })
 
 
