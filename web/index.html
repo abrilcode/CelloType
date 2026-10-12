@@ -87,8 +87,7 @@
           <div id="segpick"></div>
           <div id="seg-note" class="note"></div>
           <div class="edge-opt">
-            <label><input type="checkbox" id="edge-single" checked> Exclude objects touching the image border</label>
-            <p class="note">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. You can change this after segmenting; no new segmentation is needed.</p>
+            <label><input type="checkbox" id="edge-single" checked> Exclude objects touching the image border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span>
           </div>
           <div class="actionrow">
             <button id="continue" class="primary" disabled>Segment</button>
@@ -98,9 +97,8 @@
         </div>
         <div class="block">
           <div id="bg-sub-single-wrap" class="hidden">
-            <label><input type="checkbox" id="bg-sub-single"> Subtract background</label>
-            <p class="note">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn this on only if you decide it suits your images, and keep the same setting for every image you compare, including the controls.</p>
-            <label class="inline px-opt">Pixel size <input type="text" id="px-single" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label>
+            <div class="optline"><label><input type="checkbox" id="bg-sub-single"> Subtract background</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn it on only when it suits the images, and keep the same setting for every image compared, including the controls.</span></span></div>
+            <div class="px-opt"><label class="inline">Pixel size <input type="text" id="px-single" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Read from the file when it carries one (CZI, OME-TIFF, ImageJ TIFF). For images without one, the pixel size from the microscope or a calibration slide can be entered here; it is used only for those images and never replaces a pixel size stored in a file. Sizes are then also given in µm and µm². Pixel columns are always kept, and positions stay in pixels.</span></span></div>
             <p class="note" id="px-single-note"></p>
           </div>
           <div class="actionrow"><button id="measure-btn" class="primary hidden">Measure</button></div>
@@ -167,11 +165,8 @@
       <div id="images-panel" data-step="images" class="panel">
         <div class="panel-head"><h2>Raw data</h2><span id="images-count" class="meta"></span></div>
         <div class="block">
-          <h3>Conditions</h3>
+          <h3>Conditions<span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Condition is the group being compared. Technical replicate is the field number (<code>Foto&lt;n&gt;</code>) inside that condition: another imaged position of the sample, not an independent biological replicate. Click a thumbnail to inspect the channels.</span></span></h3>
           <div id="condsummary"></div>
-          <p class="note">Condition is the group being compared. Technical replicate is the field number
-            (<code>Foto&lt;n&gt;</code>) inside that condition: another imaged position of the sample, not an
-            independent biological replicate. Click a thumbnail to inspect the channels.</p>
         </div>
         <div id="btable"></div>
         <div id="mrejected"></div>
@@ -355,6 +350,25 @@ function downloadText(name, text, mime) {
   a.download = name; a.click(); URL.revokeObjectURL(a.href);
 }
 
+// Info icon: the explanation of an option opens on hover, keyboard focus or tap, instead of a paragraph.
+function infoTip(html, align) {
+  return `<span class="info${align === "right" ? " right" : ""}" tabindex="0" role="button" aria-label="More information">`
+    + `<span class="info-i">i</span><span class="info-tip" role="tooltip">${html}</span></span>`;
+}
+
+// Keep an open info tip inside the window: it opens upwards near the bottom edge and leftwards near
+// the right edge.
+function placeTip(el) {
+  const tip = el.querySelector(".info-tip"); if (!tip) return;
+  el.classList.remove("up", "flip");
+  const r = tip.getBoundingClientRect(), icon = el.getBoundingClientRect();
+  if (r.bottom > window.innerHeight - 8 && icon.top > r.height + 16) el.classList.add("up");
+  if (r.right > window.innerWidth - 8) el.classList.add("flip");
+}
+["mouseover", "focusin"].forEach(ev => document.addEventListener(ev, e => {
+  const el = e.target.closest && e.target.closest(".info"); if (el) placeTip(el);
+}));
+
 // "measurements.csv" -> "measurements_parameters.json"
 function paramsName(csvName) { return csvName.replace(/\.csv$/i, "") + "_parameters.json"; }
 function paramsText(rec) { return JSON.stringify(rec, null, 2); }
@@ -501,12 +515,10 @@ function renderMeasure(sel, r, filename, maskItems) {
     const sortCtl = r.result_token
       ? `<label class="inline">Sort by <select class="sortby">${["", ...r.columns].map(c => `<option value="${esc(c)}" ${c === st.by ? "selected" : ""}>${c ? esc(c) : "file order"}</option>`).join("")}</select></label>`
         + `<label class="inline">Order <select class="sortdir"><option value="asc" ${!st.desc ? "selected" : ""}>Ascending</option><option value="desc" ${st.desc ? "selected" : ""}>Descending</option></select></label>` : "";
-    const extra = (r.run_parameters ? `<button class="dlparams">Download parameters</button>` : "")
+    const extra = (r.run_parameters ? `<button class="dlparams">Download parameters</button>` + infoTip("The parameters file records how this table was produced: versions, segmentation settings, manual mask edits, background, border rule and measurements. Save to folder writes the table and its parameters file together. If masks were edited by hand, keep the masks as well: an edited run cannot be reproduced from the parameters alone.") : "")
       + (maskItems && maskItems.length ? `<button class="dlmasks">Download masks</button>` : "");
     let h = `<div class="actionrow"><button class="dlcsv primary">Download CSV</button><button class="savecsv">Save to folder</button>${extra}${sortCtl}
              <span class="meta" style="margin-left:auto">${r.nrows} rows, showing ${Math.min(r.nrows, st.preview.length)}</span></div>`;
-    if (r.run_parameters)
-      h += `<p class="note">The parameters file records how this table was produced: versions, segmentation settings, manual mask edits, background, border rule and measurements. Save to folder writes the table and its parameters file together. If masks were edited by hand, keep the masks as well: an edited run cannot be reproduced from the parameters alone.</p>`;
     h += `<div class="tablewrap"><table class="batch"><thead><tr>`;
     r.columns.forEach(c => h += `<th class="${TEXTCOLS.has(c) ? "" : "num"}">${esc(c)}</th>`);
     h += `</tr></thead><tbody>`;
@@ -596,12 +608,12 @@ function pixelSizeNote(ps) {
   if (ps && ps.source && ps.source !== "none") {
     inp.disabled = true;
     inp.placeholder = String(ps.x === ps.y ? ps.x : ps.x + " x " + ps.y);
-    note.textContent = `This file carries its pixel size (${ps.x === ps.y ? ps.x : ps.x + " x " + ps.y} µm, ${PX_SOURCE[ps.source] || ps.source}), so sizes are also given in µm and µm². Pixel columns are kept, and positions stay in pixels.`;
+    note.textContent = `${ps.x === ps.y ? ps.x : ps.x + " x " + ps.y} µm per pixel, ${PX_SOURCE[ps.source] || ps.source}.`;
   } else {
     inp.disabled = false;
     inp.placeholder = "";
-    note.textContent = (ps && ps.conflict ? "The channel files disagree on the pixel size, so none is used. " : "This file has no pixel size in its metadata, so sizes are in pixels. ")
-      + "Optional: enter the pixel size from the microscope or a calibration slide to also get the sizes in µm and µm². Pixel columns are kept, and positions stay in pixels.";
+    note.textContent = ps && ps.conflict ? "The channel files disagree on the pixel size, so none is used; sizes are in pixels unless one is entered."
+      : "No pixel size in this file; sizes are in pixels unless one is entered.";
   }
 }
 
@@ -737,14 +749,14 @@ function handle(data, skipped) {
 function buildControls(f, rejected, skipped) {
   // View switcher
   let v = "";
-  if (f.composite) v += `<button class="viewbtn" data-view="original"><span class="vn">RGB</span><span class="vlabel">Original</span></button>`;
+  if (f.composite) v += `<button class="viewbtn" data-view="original"><span class="vn">All</span><span class="vlabel">Merged</span></button>`;
   f.channels.forEach((c, i) => {
     v += `<button class="viewbtn" data-view="ch-${c.id}"><span class="vn">C${i + 1}</span><span class="vlabel">${esc(c.name)}</span></button>`;
   });
   $("#viewlist").innerHTML = v;
 
   // Segment picker + editable markers
-  let s = `<p class="note">Which channel holds the nuclei? Pick it below. You can rename each channel however you like (the marker or antibody, the fluorophore, or the colour); these labels are used in the tables and plots.</p>`;
+  let s = `<p class="note">Which channel holds the nuclei?${infoTip("Pick it below. Each channel can be renamed (the marker or antibody, the fluorophore, or the colour); these labels are used in the tables and plots.")}</p>`;
   f.channels.forEach((c, i) => {
     s += `<div class="chrow">
       <label><input type="radio" name="segch" value="${c.id}" data-i="${i}"><span class="meta">C${i + 1}</span></label>
@@ -910,7 +922,7 @@ function setView(view) {
   CURRENT = view;
   let src;
   if (view === "segmentation") { src = SEG_OVERLAY; setCaption("SEG", "segmentation overlay"); }
-  else if (view === "original") { src = FIELD.composite; setCaption("RGB", "original, merged channels"); }
+  else if (view === "original") { src = FIELD.composite; setCaption("MERGED", "all channels in their display colours"); }
   else {
     const id = Number(view.split("-")[1]);
     const c = FIELD.channels.find(x => x.id === id);
@@ -1040,7 +1052,7 @@ function openInspector(idx) {
 
 function renderInspector(f) {
   let v = "";
-  if (f.composite) v += `<button class="viewbtn" data-view="original"><span class="vn">RGB</span><span class="vlabel">Original</span></button>`;
+  if (f.composite) v += `<button class="viewbtn" data-view="original"><span class="vn">All</span><span class="vlabel">Merged</span></button>`;
   f.channels.forEach((c, i) => {
     v += `<button class="viewbtn" data-view="ch-${c.id}"><span class="vn">C${i + 1}</span><span class="vlabel">${esc(c.name)}</span></button>`;
   });
@@ -1271,10 +1283,8 @@ function renderChannels() {
     return o;
   };
 
-  let h = head;
-  h += `<div class="work-grid"><div class="work-left">`;
-  h += `<div class="block"><h3>Markers</h3>`;
-  h += `<p class="note">Every image has ${L.n} channels. Name each one however you like: the marker or antibody, the fluorophore, or the colour. These labels are used in the tables and plots.</p>`;
+  let h = `<div class="work-grid"><div class="work-left">` + head;
+  h += `<div class="block"><h3>Markers${infoTip(`Every image has ${L.n} channels. Name each one: the marker or antibody, the fluorophore, or the colour. These labels are used in the tables and plots.`)}</h3>`;
   h += `<table class="batch" style="max-width:520px"><thead><tr><th>Channel</th><th>Marker</th></tr></thead><tbody>`;
   for (let i = 0; i < L.n; i++) {
     h += `<tr><td class="meta">C${i + 1}</td><td><input type="text" class="chlabel" data-i="${i}" value="${esc(CHANNEL_LABELS[i])}"></td></tr>`;
@@ -1291,17 +1301,16 @@ function renderChannels() {
     <div id="chan-msg"></div></div>`;
 
   h += `<div class="block edge-opt">
-    <label><input type="checkbox" id="edge-batch" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label>
-    <p class="note">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. You can change this after segmenting; no new segmentation is needed.</p></div>`;
+    <label><input type="checkbox" id="edge-batch" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span></div>`;
 
   h += `<div class="rowend"><button class="back">Back</button>
         <button id="segall" class="primary">Segment all images</button></div>`;
   h += `</div><aside class="work-right"><div class="viewer-inline">
       <div class="vi-head"><strong id="cx-title" class="ellip"></strong><span style="flex:1"></span>
-        <button id="cx-prev" class="sm">Prev</button><span id="cx-pos" class="meta"></span><button id="cx-next" class="sm">Next</button></div>
+        <button id="cx-prev" class="sm">Prev</button><span id="cx-pos" class="meta"></span><button id="cx-next" class="sm">Next</button>${infoTip("Browse each image and its channels while naming them. Click the image to enlarge it.", "right")}</div>
       <div class="vi-views" id="cx-views"></div>
       <div class="vi-img"><img id="cx-img" alt="" title="Click to enlarge"></div>
-      </div><p class="note" style="margin-top:10px">Explore each image and its channels here while you name them, so you are not choosing blind.</p></aside></div>`;
+      </div></aside></div>`;
   p.innerHTML = h;
 
   document.querySelectorAll(".chlabel").forEach(el =>
@@ -1330,17 +1339,36 @@ let SEG_SEL = 0;   // which segmented image is shown in the docked results viewe
 
 function renderSegmentPanel() {
   const p = $("#segment-panel");
-  p.innerHTML = `<div class="panel-head"><h2>Segment</h2></div>
+  p.innerHTML = `<div class="work-grid"><div class="work-left">
+    <div class="panel-head"><h2>Segment</h2></div>
     <p class="note">Segmenting with <b>Cellpose-SAM</b>${DEVICE_LABEL ? ", on " + DEVICE_LABEL : ""}.</p>
     <div class="loading" id="segbar-wrap"><span class="prog run" id="segbar"><i></i></span>
       <span id="segprogress" class="meta"></span></div>
-    <div class="edge-opt"><label><input type="checkbox" id="edge-batch-after" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label>
-      <span class="meta">Changing this redraws every image; no new segmentation is run.</span></div>
+    <div class="edge-opt"><label><input type="checkbox" id="edge-batch-after" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label>${infoTip("Changing this redraws every image; no new segmentation is run.")}</div>
     <div id="segresults"></div>
     <div class="rowend">
       <button class="back">Back</button>
       <button id="to-measure" class="primary hidden">Continue to measurements</button>
-    </div>`;
+    </div></div>
+    <aside class="work-right"><div class="viewer-inline">
+      <div class="vi-head"><strong id="sv-title" class="ellip"></strong><span style="flex:1"></span>
+        <button id="sv-prev" class="sm" disabled>Prev</button><span id="sv-pos" class="meta"></span><button id="sv-next" class="sm" disabled>Next</button></div>
+      <div class="vi-views"><button id="sv-view" class="sm" disabled>Channels and histogram</button><button id="sv-edit" class="sm" disabled>Edit masks</button>
+        <span style="flex:1"></span>${infoTip('Click a row to show its overlay here. "Channels and histogram" opens per-channel colour, brightness and contrast, and the histogram.', "right")}</div>
+      <div class="vi-img empty" id="sv-box"><img id="sv-img" alt="" title="Click for channels and histogram"><span class="vi-empty">The first segmented image appears here.</span></div>
+    </div></aside></div>`;
+  $("#sv-prev").onclick = () => svSelect(SEG_SEL - 1);
+  $("#sv-next").onclick = () => svSelect(SEG_SEL + 1);
+  const openView = () => { if (BSEG.length) Viewer.open(BSEG.map(s => ({ token: s.token, name: s.key })), SEG_SEL, true); };
+  $("#sv-view").onclick = openView;
+  $("#sv-img").onclick = openView;
+  $("#sv-edit").onclick = () => { if (!BSEG.length) return; Editor.openBatch(BSEG, SEG_SEL, (idx, overlay, count) => {
+    BSEG[idx].overlay = overlay; BSEG[idx].count = count; renderSegResults(); svSelect(idx);
+    setEdgeRule(BSEG[idx].token, EDGE_EXCLUDE).then(r => {
+      if (r.error) return;
+      Object.assign(BSEG[idx], { overlay: r.overlay, count: r.count, edge: r.edge }); renderSegResults(); svSelect(idx);
+    });
+  }); };
   $("#to-measure").onclick = () => { Flow.enable("measure"); Flow.go("measure"); renderMeasurePanel(); };
   $("#edge-batch-after").onchange = async () => {
     EDGE_EXCLUDE = $("#edge-batch-after").checked;
@@ -1421,7 +1449,7 @@ async function segmentAllBatch() {
 function renderSegResults() {
   const box = $("#segresults");
   if (!box) return;
-  if (!BSEG.length) { box.innerHTML = ""; return; }
+  if (!BSEG.length) { box.innerHTML = ""; svSelect(0); return; }
   if (SEG_SEL >= BSEG.length) SEG_SEL = BSEG.length - 1;
   if (SEG_SEL < 0) SEG_SEL = 0;
   let list = `<table class="batch"><thead><tr><th>Field</th><th>Condition</th><th class="num">Objects</th>
@@ -1436,38 +1464,28 @@ function renderSegResults() {
       <td class="num">${e.kept != null ? e.kept : s.count}</td></tr>`;
   });
   list += `</tbody></table>`;
-  box.innerHTML = `<div class="work-grid"><div class="work-left">${list}</div>
-    <aside class="work-right"><div class="viewer-inline">
-      <div class="vi-head"><strong id="sv-title" class="ellip"></strong><span style="flex:1"></span>
-        <button id="sv-prev" class="sm">Prev</button><span id="sv-pos" class="meta"></span><button id="sv-next" class="sm">Next</button></div>
-      <div class="vi-views"><button id="sv-view" class="sm">Channels and histogram</button> <button id="sv-edit" class="sm">Edit masks</button></div>
-      <div class="vi-img"><img id="sv-img" alt="" title="Click for channels and histogram"></div>
-      </div><p class="note" style="margin-top:10px">Click a row to see its overlay here. Open "Channels and histogram" for per-channel colour, brightness and contrast, and the histogram.</p></aside></div>`;
+  box.innerHTML = list;
   document.querySelectorAll("#segresults .segrow").forEach(r => r.onclick = () => svSelect(+r.dataset.i));
-  $("#sv-prev").onclick = () => svSelect(SEG_SEL - 1);
-  $("#sv-next").onclick = () => svSelect(SEG_SEL + 1);
-  const openView = () => Viewer.open(BSEG.map(s => ({ token: s.token, name: s.key })), SEG_SEL, true);
-  $("#sv-view").onclick = openView;
-  $("#sv-img").onclick = openView;
-  $("#sv-edit").onclick = () => Editor.openBatch(BSEG, SEG_SEL, (idx, overlay, count) => {
-    BSEG[idx].overlay = overlay; BSEG[idx].count = count; renderSegResults(); svSelect(idx);
-    setEdgeRule(BSEG[idx].token, EDGE_EXCLUDE).then(r => {
-      if (r.error) return;
-      Object.assign(BSEG[idx], { overlay: r.overlay, count: r.count, edge: r.edge }); renderSegResults(); svSelect(idx);
-    });
-  });
   svSelect(SEG_SEL);
 }
 
 function svSelect(i) {
-  SEG_SEL = Math.max(0, Math.min(i, BSEG.length - 1));
-  const s = BSEG[SEG_SEL]; if (!s) return;
   const T = $("#sv-title"); if (!T) return;
+  const box = $("#sv-box"), img = $("#sv-img");
+  const none = !BSEG.length;
+  ["#sv-view", "#sv-edit"].forEach(id => { const b = $(id); if (b) b.disabled = none; });
+  if (none) {
+    T.textContent = ""; $("#sv-pos").textContent = ""; $("#sv-prev").disabled = $("#sv-next").disabled = true;
+    box.classList.add("empty"); img.removeAttribute("src"); return;
+  }
+  SEG_SEL = Math.max(0, Math.min(i, BSEG.length - 1));
+  const s = BSEG[SEG_SEL];
   T.textContent = s.key + (s.condition ? "  (" + s.condition + ")" : "");
   $("#sv-pos").textContent = `${SEG_SEL + 1} / ${BSEG.length}`;
   $("#sv-prev").disabled = SEG_SEL <= 0;
   $("#sv-next").disabled = SEG_SEL >= BSEG.length - 1;
-  $("#sv-img").src = s.overlay || "";
+  if (s.overlay && img.getAttribute("src") !== s.overlay) img.src = s.overlay;
+  box.classList.toggle("empty", !s.overlay);
   document.querySelectorAll("#segresults .segrow").forEach(r => r.classList.toggle("sel", +r.dataset.i === SEG_SEL));
 }
 
@@ -1488,11 +1506,9 @@ function renderMeasurePanel() {
       <span class="meta">${BSEG.length} images &middot; ${total} objects</span></div>
     <div class="block"><h3>Set measurements</h3><div id="meas-set">${measChecklist()}</div>
       <div class="actionrow" style="margin-top:14px">
-        <label><input type="checkbox" id="bg-sub"> Subtract background</label>
+        <label><input type="checkbox" id="bg-sub"> Subtract background</label>${infoTip('Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn it on only when it suits the images, and keep the same setting for every image compared, including the controls.')}
       </div>
-      <p class="note">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn this on only if you decide it suits your images, and keep the same setting for every image you compare, including the controls.</p>
-      <label class="inline px-opt">Pixel size <input type="text" id="px-batch" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label>
-      <p class="note">Optional. Sizes are given in µm and µm² for every image whose file carries a pixel size (CZI, OME-TIFF, ImageJ TIFF). For images without one, enter the pixel size from the microscope or a calibration slide; it is used only for those images and never replaces a pixel size stored in a file. Pixel columns are always kept, and positions stay in pixels.</p></div>
+      <div class="px-opt"><label class="inline">Pixel size <input type="text" id="px-batch" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label>${infoTip('Optional. Sizes are given in µm and µm² for every image whose file carries a pixel size (CZI, OME-TIFF, ImageJ TIFF). For images without one, the pixel size from the microscope or a calibration slide can be entered here; it is used only for those images and never replaces a pixel size stored in a file. Pixel columns are always kept, and positions stay in pixels.')}</div></div>
     <div class="rowend"><button class="back">Back</button>
       <button id="measure-all" class="primary">Measure all</button>
       <button id="to-analyze" class="hidden">Plots and analysis</button></div>
@@ -1537,7 +1553,7 @@ function buildCompareUI(channels, conditions, metrics) {
     <div class="panel-head"><h2>Analysis</h2>
       <span class="meta">${conditions.length} conditions &middot; ${channels.length} markers</span></div>
 
-    <p class="note">Descriptive only: each condition pools all cells from all its fields. Cells and fields are not independent samples; for statistical tests, use one value per biological replicate (an independent sample or experiment).</p>
+    <p class="note">Descriptive only: cells and fields are not independent samples.${infoTip("Each condition pools all cells from all its fields. For statistical tests, use one value per biological replicate (an independent sample or experiment).")}</p>
     <div class="tabs">
       <button class="tab active" data-tab="cmp">Comparison</button>
       <button class="tab" data-tab="sc">Co-expression</button>
