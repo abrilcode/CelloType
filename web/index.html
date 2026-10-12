@@ -4,14 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CelloType</title>
-<link rel="stylesheet" href="/static/app.css?v=3">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css?v=6">
 </head>
 <body>
 
 <header id="topbar">
   <span class="brand">CelloType</span>
-  <span class="brand-sub">Fluorescence Image Analysis</span>
+  <span class="brand-sub">Segmentation and quantification of multichannel fluorescence images</span>
   <span class="spacer"></span>
+  <button id="outdir-pick" class="quiet">Output folder</button>
+  <span id="outdir-name" class="meta" title="Where Save to folder writes"></span>
   <span id="device-chip" class="hidden"></span>
   <button id="restart" class="quiet hidden">Start over</button>
   <button id="theme-toggle" class="quiet">Dark</button>
@@ -24,15 +30,17 @@
   <!-- Step 0: single vs multiple -->
   <section id="choice" class="start">
     <h1>New analysis</h1>
-    <p class="lead">Segment objects, measure every channel inside each object, compare conditions.</p>
+    <p class="lead">Segment nuclei or cells, measure every channel inside each one, and compare conditions.</p>
     <div class="tiles">
       <button class="tile" id="pick-single">
+        <span class="ti">01</span>
         <span class="t">Single image</span>
-        <span class="d">One field. Pick the channel to segment, review the objects, measure them.</span>
+        <span class="d">One image with one or more channels. Segment it, review the result, and measure every channel.</span>
       </button>
       <button class="tile" id="pick-multiple">
+        <span class="ti">02</span>
         <span class="t">Multiple images</span>
-        <span class="d">Fields grouped by condition, segmented on one shared channel, compared.</span>
+        <span class="d">Several images grouped by condition, segmented on one shared channel and compared.</span>
       </button>
     </div>
   </section>
@@ -43,18 +51,28 @@
     <div id="uploader" data-step="image" class="panel">
       <div class="panel-head"><h2>Raw data</h2></div>
       <input type="file" id="files" class="hidden" multiple accept=".czi,.tif,.tiff,.png,.jpg,.jpeg">
-      <div class="drop" id="drop-single">
-        <span class="dt">Drop the image here, or click to choose</span>
-        <span class="dm">czi &middot; tif &middot; tiff &middot; png &middot; jpg &middot; jpeg</span>
+      <div class="upload-grid">
+        <div class="upload-left">
+          <div class="drop" id="drop-single">
+            <div class="drop-prompt">
+              <span class="dt">Drop the image here, or click to choose</span>
+              <span class="dm">czi &middot; tif &middot; tiff &middot; png &middot; jpg &middot; jpeg</span>
+            </div>
+            <div id="filelist-single" class="thumbs"></div>
+          </div>
+          <div class="rowend">
+            <button id="go" class="primary" disabled>Upload</button>
+            <span id="busy" class="loading hidden"><span class="prog run"><i></i></span><span class="meta">reading files</span></span>
+          </div>
+        </div>
+        <aside class="upload-help">
+          <h3 class="kicker">What to upload</h3>
+          <p class="note">Upload <b>one multichannel file</b> (all channels in a single file, for example a CZI), or the <b>separate single-channel files</b> of the same image.</p>
+          <p class="note">For separate files, give each the same base name and a different marker suffix, <code>name-MARKER.ext</code>, for example <code>sample-DAPI.tif</code> and <code>sample-CD3.tif</code>. Single-channel TIFFs that share the base name are read as the channels of one image.</p>
+          <p class="note">Accepted: CZI, TIFF, PNG, JPEG. PNG and JPEG are 8-bit, so their intensities are not quantitative.</p>
+        </aside>
       </div>
-      <div id="filelist-single" class="filelist"></div>
-      <p class="rules">One multichannel file, or the single channel files of one field named
-        <code>name-MARKER.ext</code>, for example <code>sample-DAPI.tif</code>.</p>
       <div id="upmsg"></div>
-      <div class="rowend">
-        <button id="go" class="primary" disabled>Upload</button>
-        <span id="busy" class="loading hidden"><span class="prog run"><i></i></span><span class="meta">reading files</span></span>
-      </div>
     </div>
 
     <div id="workspace" class="hidden" data-step="segment">
@@ -112,19 +130,29 @@
     <div id="muploader" data-step="images" class="panel">
       <div class="panel-head"><h2>Raw data</h2></div>
       <input type="file" id="mfiles" class="hidden" multiple accept=".czi,.tif,.tiff,.png,.jpg,.jpeg">
-      <div class="drop" id="drop-batch">
-        <span class="dt">Drop the images here, or click to choose</span>
-        <span class="dm">czi &middot; tif &middot; tiff &middot; png &middot; jpg &middot; jpeg</span>
+      <div class="upload-grid">
+        <div class="upload-left">
+          <div class="drop" id="drop-batch">
+            <div class="drop-prompt">
+              <span class="dt">Drop images here, or click to choose</span>
+              <span class="dm">czi &middot; tif &middot; tiff &middot; png &middot; jpg &middot; jpeg</span>
+            </div>
+            <div id="filelist-batch" class="thumbs"></div>
+          </div>
+          <div class="rowend">
+            <button id="mgo" class="primary" disabled>Upload</button>
+            <span id="mbusy" class="loading hidden"><span class="prog run"><i></i></span><span class="meta">reading files</span></span>
+          </div>
+        </div>
+        <aside class="upload-help">
+          <h3 class="kicker">How to name your files</h3>
+          <p class="note">Name each file <code>condition-Foto&lt;n&gt;-marker.ext</code>, for example <code>FN-D0-Foto1-DAPI.tif</code>. Each image is one <code>Foto&lt;n&gt;</code> inside a condition.</p>
+          <p class="note">Upload <b>one multichannel file per image</b> (for example <code>FN-D0-Foto1.czi</code>, all channels inside), or the <b>separate single-channel files</b> of that image.</p>
+          <p class="note">Separate single-channel <code>.tif</code> files that share the same <code>condition-Foto&lt;n&gt;</code> name are read as the channels of one image. This grouping applies only to single-channel TIFFs, not to CZI or multichannel TIFF (which already hold all their channels).</p>
+          <p class="note">Accepted: CZI, TIFF, PNG, JPEG. PNG and JPEG work for counting but are 8-bit, so their intensities are not quantitative.</p>
+        </aside>
       </div>
-      <div id="filelist-batch" class="filelist"></div>
-      <p class="rules">Name files <code>condition-Foto&lt;n&gt;-marker.ext</code>, for example
-        <code>FN-D0-Foto1-DAPI.tif</code>, or one multichannel file per field
-        (<code>FN-D0-Foto1.czi</code>). Files sharing a name become one field.</p>
       <div id="mupmsg"></div>
-      <div class="rowend">
-        <button id="mgo" class="primary" disabled>Upload</button>
-        <span id="mbusy" class="loading hidden"><span class="prog run"><i></i></span><span class="meta">reading files</span></span>
-      </div>
     </div>
 
     <div id="mworkspace" class="hidden">
@@ -134,7 +162,7 @@
         <div class="block">
           <h3>Conditions</h3>
           <div id="condsummary"></div>
-          <p class="note">Condition is the axis you compare. Replicate is the field number
+          <p class="note">Condition is the axis you compare. Replicate is the image number
             (<code>Foto&lt;n&gt;</code>) inside that condition. Click a thumbnail to inspect the channels.</p>
         </div>
         <div id="btable"></div>
@@ -274,8 +302,7 @@ const Flow = (() => {
     nav.classList.remove("hidden");
     nav.innerHTML = DEFS[mode].map((s, i) => {
       const cls = s.id === cur ? "is-active" : open.has(s.id) ? "is-done" : "is-todo";
-      return (i ? `<span class="step-link"></span>` : "")
-        + `<button class="step ${cls}" data-go="${s.id}"><span class="n">${pad2(i + 1)}</span>${esc(s.label)}</button>`;
+      return `<button class="step ${cls}" data-go="${s.id}"><span class="n">${pad2(i + 1)}</span>${esc(s.label)}</button>`;
     }).join("");
     nav.querySelectorAll(".step").forEach(b => b.onclick = () => go(b.dataset.go));
   }
@@ -320,12 +347,72 @@ function downloadText(name, text) {
   a.download = name; a.click(); URL.revokeObjectURL(a.href);
 }
 
+// Save an artifact (CSV text or base64 image) to the local Output folder set in the
+// top bar. Offered next to every Download; the app is local so the backend writes it.
+let OUT_HANDLE = null;   // FileSystemDirectoryHandle when the folder was picked natively
+
+// Open the computer's native folder picker (Chrome/Edge, on localhost). Safari/Firefox
+// do not support it, so there the user types a path and the backend writes the files.
+async function chooseFolder() {
+  if (!window.showDirectoryPicker) {
+    alert("Your browser cannot open a folder picker. Use Chrome or Edge, or use the Download buttons instead.");
+    return;
+  }
+  try {
+    OUT_HANDLE = await window.showDirectoryPicker({ mode: "readwrite" });
+    const el = document.getElementById("outdir-name");
+    if (el) el.textContent = OUT_HANDLE.name;
+  } catch (e) { /* user cancelled the picker */ }
+}
+
+function _b64ToBytes(dataUri) {
+  const b64 = dataUri.indexOf(",") >= 0 ? dataUri.slice(dataUri.indexOf(",") + 1) : dataUri;
+  const bin = atob(b64), arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+// Save an artifact (CSV text or base64 image) to the chosen Output folder. If the folder
+// was picked natively we write to it directly; otherwise we send a typed path to the local
+// backend. Offered next to every Download, never instead of it.
+async function saveToFolder(filename, content, isB64) {
+  if (!OUT_HANDLE) {
+    alert("Choose an output folder first, with the Choose output folder button in the top bar.");
+    return false;
+  }
+  try {
+    const fh = await OUT_HANDLE.getFileHandle(filename, { create: true });
+    const w = await fh.createWritable();
+    await w.write(isB64 ? _b64ToBytes(content) : content);
+    await w.close();
+    return true;
+  } catch (e) { alert("Could not save to the chosen folder: " + e); return false; }
+}
+async function saveClick(btn, filename, content, isB64) {
+  const ok = await saveToFolder(filename, content, isB64);
+  if (ok) { const t = btn.textContent; btn.textContent = "Saved"; setTimeout(() => { btn.textContent = t; }, 1400); }
+}
+(function () {   // wire the native folder-picker button (no typed path, so nothing to break)
+  const b = document.getElementById("outdir-pick");
+  if (b) b.onclick = chooseFolder;
+})();
+
+// Thumbnails of the dropped files, shown inside the drop box. PNG/JPEG get a real
+// preview; CZI/TIFF cannot be rendered by the browser, so they show an extension tile.
 function fileSummary(files) {
   const a = Array.from(files || []);
   if (!a.length) return "";
-  const shown = a.slice(0, 8).map(f => `<li>${esc(f.name)}</li>`).join("");
-  const more = a.length > 8 ? `<li>and ${a.length - 8} more</li>` : "";
-  return `<div class="meta">${a.length} file${a.length > 1 ? "s" : ""} selected</div><ul>${shown}${more}</ul>`;
+  const IMG = new Set(["png", "jpg", "jpeg"]);
+  const cards = a.slice(0, 24).map(f => {
+    const ext = (f.name.split(".").pop() || "").toLowerCase();
+    const box = IMG.has(ext)
+      ? `<span class="box"><img src="${URL.createObjectURL(f)}" alt=""></span>`
+      : `<span class="box"><span class="ext">${esc(ext.toUpperCase())}</span></span>`;
+    return `<div class="thumb">${box}<span class="fn" title="${esc(f.name)}">${esc(f.name)}</span></div>`;
+  }).join("");
+  const more = a.length > 24
+    ? `<div class="thumb"><span class="box"><span class="ext">+${a.length - 24}</span></span><span class="fn">more</span></div>` : "";
+  return cards + more;
 }
 
 // click or drag and drop, both feed the same file input
@@ -388,8 +475,8 @@ function renderMeasure(sel, r, filename) {
   const draw = () => {
     const sortCtl = r.result_token
       ? `<label class="inline">Sort by <select class="sortby">${["", ...r.columns].map(c => `<option value="${esc(c)}" ${c === st.by ? "selected" : ""}>${c ? esc(c) : "file order"}</option>`).join("")}</select></label>`
-        + `<label class="inline"><input type="checkbox" class="sortdesc" ${st.desc ? "checked" : ""}> descending</label>` : "";
-    let h = `<div class="actionrow"><button class="dlcsv primary">Download CSV</button>${sortCtl}
+        + `<label class="inline">Order <select class="sortdir"><option value="asc" ${!st.desc ? "selected" : ""}>Ascending</option><option value="desc" ${st.desc ? "selected" : ""}>Descending</option></select></label>` : "";
+    let h = `<div class="actionrow"><button class="dlcsv primary">Download CSV</button><button class="savecsv">Save to folder</button>${sortCtl}
              <span class="meta" style="margin-left:auto">${r.nrows} rows, showing ${Math.min(r.nrows, st.preview.length)}</span></div>`;
     h += `<div class="tablewrap"><table class="batch"><thead><tr>`;
     r.columns.forEach(c => h += `<th class="${TEXTCOLS.has(c) ? "" : "num"}">${esc(c)}</th>`);
@@ -402,10 +489,11 @@ function renderMeasure(sel, r, filename) {
     h += `</tbody></table></div>`;
     box.innerHTML = h;
     box.querySelector(".dlcsv").onclick = () => downloadText(filename, st.csv);
-    const sb = box.querySelector(".sortby"), sd = box.querySelector(".sortdesc");
+    { const sv = box.querySelector(".savecsv"); if (sv) sv.onclick = () => saveClick(sv, filename, st.csv, false); }
+    const sb = box.querySelector(".sortby"), sd = box.querySelector(".sortdir");
     if (sb) {
       const resort = async () => {
-        st.by = sb.value; st.desc = sd.checked;
+        st.by = sb.value; st.desc = sd.value === "desc";
         if (!st.by) { st.preview = r.preview; st.csv = r.csv; draw(); return; }
         const fd = new FormData();
         fd.append("result_token", r.result_token);
@@ -459,7 +547,8 @@ function singlePlotPanel(r) {
     const pr = await (await fetch("/api/batch/plot", { method: "POST", body: fd })).json();
     if (pr.error) { $("#single-fig").innerHTML = `<p class="flag">${esc(pr.error)}</p>`; $("#single-dl").innerHTML = ""; return; }
     $("#single-fig").innerHTML = `<img class="cmpimg" src="${pr.figure}" alt="">`;
-    $("#single-dl").innerHTML = `<a download="distributions.png" href="${pr.figure}">Download plot</a>`;
+    $("#single-dl").innerHTML = `<a download="distributions.png" href="${pr.figure}">Download plot</a> <button class="savefig">Save to folder</button>`;
+    { const sv = $("#single-dl .savefig"); if (sv) sv.onclick = () => saveClick(sv, "distributions.png", pr.figure, true); }
     const im = $("#single-fig .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
   };
   const deb = debounce(doSinglePlot, 200);
@@ -472,7 +561,7 @@ let FIELD = null;
 let SINGLE_TOKEN = null;   // server session for the single image
 let SEG_OVERLAY = null;    // segmentation overlay data-uri
 let SINGLE_NAME = "image";
-let GPU_OK = true;
+let GPU_OK = true, DEVICE_LABEL = "";
 
 $("#pick-single").onclick = () => {
   $("#choice").classList.add("hidden"); $("#single").classList.remove("hidden"); Flow.start("single");
@@ -560,7 +649,7 @@ function buildControls(f, rejected, skipped) {
   $("#viewlist").innerHTML = v;
 
   // Segment picker + editable markers
-  let s = `<p class="note">Which channel holds the nuclei?</p>`;
+  let s = `<p class="note">Which channel holds the nuclei? Pick it below. You can rename each channel however you like (the marker or antibody, the fluorophore, or the colour); these labels are used in the tables and plots.</p>`;
   f.channels.forEach((c, i) => {
     s += `<div class="chrow">
       <label><input type="radio" name="segch" value="${c.id}" data-i="${i}"><span class="meta">C${i + 1}</span></label>
@@ -662,7 +751,7 @@ function buildControls(f, rejected, skipped) {
       $("#measure-btn").classList.remove("hidden");
       $("#bg-sub-single-wrap").classList.remove("hidden");
       const chName = $(`#mk-${sel.value}`) ? $(`#mk-${sel.value}`).value : `Channel ${Number(sel.dataset.i) + 1}`;
-      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)}, ${esc(r.device || "")}, ${secs}.</div>`;
+      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)} with Cellpose-SAM, ${esc(r.device || "")}, ${secs}.</div>`;
       singleCtx(r.count, chName);
     } catch (e) {
       clearInterval(timer);
@@ -858,6 +947,47 @@ $("#insp-close").onclick = () => { $("#inspector").classList.remove("show"); INS
 $("#insp-prev").onclick = () => { if (INSP_IDX > 0) openInspector(INSP_IDX - 1); };
 $("#insp-next").onclick = () => { if (INSP_IDX < BFIELDS.length - 1) openInspector(INSP_IDX + 1); };
 
+// Inline image explorer for the Channels step: same preview data as the inspector, but
+// docked on the right so you can see each image and channel while you name them.
+let CX_IDX = 0, CX_FIELD = null;
+function cxOpen(idx) {
+  if (!BFIELDS.length || !$("#cx-title")) return;
+  CX_IDX = Math.max(0, Math.min(idx, BFIELDS.length - 1));
+  const f = BFIELDS[CX_IDX];
+  CX_FIELD = null;
+  $("#cx-title").textContent = f.key + (f.condition ? "  (" + f.condition + ")" : "");
+  $("#cx-pos").textContent = `${CX_IDX + 1} / ${BFIELDS.length}`;
+  $("#cx-prev").disabled = CX_IDX <= 0;
+  $("#cx-next").disabled = CX_IDX >= BFIELDS.length - 1;
+  $("#cx-views").innerHTML = loadingHTML("loading channels");
+  $("#cx-img").src = f.thumbnail || "";
+  const fd = new FormData(); fd.append("token", f.__token || ""); fd.append("key", f.key);
+  fetch("/api/batch/preview", { method: "POST", body: fd })
+    .then(r => r.json())
+    .then(d => {
+      if (!$("#cx-views")) return;
+      if (d.field) { CX_FIELD = d.field; cxRender(d.field); }
+      else $("#cx-views").innerHTML = `<div class="flag">${esc(d.error || "No preview.")}</div>`;
+    })
+    .catch(e => { if ($("#cx-views")) $("#cx-views").innerHTML = `<div class="flag">Failed to load: ${esc(e)}</div>`; });
+}
+function cxRender(f) {
+  let o = "";
+  if (f.composite) o += `<option value="original">Original (all channels)</option>`;
+  f.channels.forEach((c, i) => { o += `<option value="ch-${c.id}">C${i + 1} &middot; ${esc(c.name)}</option>`; });
+  $("#cx-views").innerHTML = `<label class="inline">View <select id="cx-view">${o}</select></label>`;
+  $("#cx-view").onchange = () => cxView($("#cx-view").value);
+  cxView(f.composite ? "original" : `ch-${f.channels[0].id}`);
+}
+function cxView(view) {
+  if (!CX_FIELD) return;
+  let src;
+  if (view === "original") src = CX_FIELD.composite;
+  else { const id = Number(view.split("-")[1]); const c = CX_FIELD.channels.find(x => x.id === id); src = c && c.preview; }
+  $("#cx-img").src = src || "";
+  const sel = $("#cx-view"); if (sel && sel.value !== view) sel.value = view;
+}
+
 $("#mgo").addEventListener("click", async () => {
   const picked = Array.from($("#mfiles").files);
   const allowed = picked.filter(f => ALLOWED.includes(extOf(f.name)));
@@ -1024,14 +1154,14 @@ function renderChannels() {
   };
 
   let h = head;
+  h += `<div class="work-grid"><div class="work-left">`;
   h += `<div class="block"><h3>Markers</h3>`;
-  h += `<p class="note">Every image has ${L.n} channels. Name each one.</p>`;
+  h += `<p class="note">Every image has ${L.n} channels. Name each one however you like: the marker or antibody, the fluorophore, or the colour. These labels are used in the tables and plots.</p>`;
   h += `<table class="batch" style="max-width:520px"><thead><tr><th>Channel</th><th>Marker</th></tr></thead><tbody>`;
   for (let i = 0; i < L.n; i++) {
     h += `<tr><td class="meta">C${i + 1}</td><td><input type="text" class="chlabel" data-i="${i}" value="${esc(CHANNEL_LABELS[i])}"></td></tr>`;
   }
-  h += `</tbody></table>
-        <div class="actionrow"><button id="inspect-btn" class="sm">Inspect images</button></div></div>`;
+  h += `</tbody></table></div>`;
 
   h += `<div class="block"><h3>What to segment</h3>
     <div class="choices">
@@ -1044,6 +1174,12 @@ function renderChannels() {
 
   h += `<div class="rowend"><button class="back">Back</button>
         <button id="segall" class="primary">Segment all images</button></div>`;
+  h += `</div><aside class="work-right"><div class="viewer-inline">
+      <div class="vi-head"><strong id="cx-title" class="ellip"></strong><span style="flex:1"></span>
+        <button id="cx-prev" class="sm">Prev</button><span id="cx-pos" class="meta"></span><button id="cx-next" class="sm">Next</button></div>
+      <div class="vi-views" id="cx-views"></div>
+      <div class="vi-img"><img id="cx-img" alt="" title="Click to enlarge"></div>
+      </div><p class="note" style="margin-top:10px">Explore each image and its channels here while you name them, so you are not choosing blind.</p></aside></div>`;
   p.innerHTML = h;
 
   document.querySelectorAll(".chlabel").forEach(el =>
@@ -1057,16 +1193,21 @@ function renderChannels() {
   };
   document.querySelectorAll('input[name="segmode"]').forEach(el => el.onchange = syncMode);
   syncMode();
-  $("#inspect-btn").onclick = () => openInspector(0);
+  $("#cx-prev").onclick = () => cxOpen(CX_IDX - 1);
+  $("#cx-next").onclick = () => cxOpen(CX_IDX + 1);
+  $("#cx-img").onclick = () => openInspector(CX_IDX);
+  cxOpen(0);
   $("#segall").onclick = segmentAllBatch;
   updateSegBtn();
 }
 
 let BSEG = [];   // segmented batch fields: {key, token, count, overlay, condition, replicate, control}
+let SEG_SEL = 0;   // which segmented image is shown in the docked results viewer
 
 function renderSegmentPanel() {
   const p = $("#segment-panel");
   p.innerHTML = `<div class="panel-head"><h2>Segment</h2></div>
+    <p class="note">Segmenting with <b>Cellpose-SAM</b>${DEVICE_LABEL ? ", on " + DEVICE_LABEL : ""}.</p>
     <div class="loading" id="segbar-wrap"><span class="prog run" id="segbar"><i></i></span>
       <span id="segprogress" class="meta"></span></div>
     <div id="segresults"></div>
@@ -1143,29 +1284,45 @@ function renderSegResults() {
   const box = $("#segresults");
   if (!box) return;
   if (!BSEG.length) { box.innerHTML = ""; return; }
-  let h = `<table class="batch"><thead><tr><th>Image</th><th>Field</th><th>Condition</th>
-           <th class="num">Objects</th><th></th></tr></thead><tbody>`;
+  if (SEG_SEL >= BSEG.length) SEG_SEL = BSEG.length - 1;
+  if (SEG_SEL < 0) SEG_SEL = 0;
+  let list = `<table class="batch"><thead><tr><th>Field</th><th>Condition</th><th class="num">Objects</th></tr></thead><tbody>`;
   BSEG.forEach((s, i) => {
-    h += `<tr>
-      <td><img class="segthumb" src="${s.overlay}" data-i="${i}" alt=""></td>
+    list += `<tr class="segrow" data-i="${i}">
       <td>${esc(s.key)}</td>
       <td>${esc(s.condition || "")}${s.control ? ` <span class="meta">control</span>` : ""}</td>
-      <td class="num">${s.count}</td>
-      <td style="text-align:right;white-space:nowrap">
-        <button class="viewseg sm" data-i="${i}">View</button>
-        <button class="editseg sm" data-i="${i}">Review</button></td>
-    </tr>`;
+      <td class="num">${s.count}</td></tr>`;
   });
-  h += `</tbody></table>`;
-  box.innerHTML = h;
-  document.querySelectorAll("#segresults .segthumb").forEach(im => im.onclick = () => openLightbox(im.src));
-  document.querySelectorAll("#segresults .editseg").forEach(b => b.onclick = () => {
-    Editor.openBatch(BSEG, +b.dataset.i, (idx, overlay, count) => {
-      BSEG[idx].overlay = overlay; BSEG[idx].count = count; renderSegResults();
-    });
+  list += `</tbody></table>`;
+  box.innerHTML = `<div class="work-grid"><div class="work-left">${list}</div>
+    <aside class="work-right"><div class="viewer-inline">
+      <div class="vi-head"><strong id="sv-title" class="ellip"></strong><span style="flex:1"></span>
+        <button id="sv-prev" class="sm">Prev</button><span id="sv-pos" class="meta"></span><button id="sv-next" class="sm">Next</button></div>
+      <div class="vi-views"><button id="sv-view" class="sm">Channels and histogram</button> <button id="sv-edit" class="sm">Edit masks</button></div>
+      <div class="vi-img"><img id="sv-img" alt="" title="Click for channels and histogram"></div>
+      </div><p class="note" style="margin-top:10px">Click a row to see its overlay here. Open "Channels and histogram" for per-channel colour, brightness and contrast, and the histogram.</p></aside></div>`;
+  document.querySelectorAll("#segresults .segrow").forEach(r => r.onclick = () => svSelect(+r.dataset.i));
+  $("#sv-prev").onclick = () => svSelect(SEG_SEL - 1);
+  $("#sv-next").onclick = () => svSelect(SEG_SEL + 1);
+  const openView = () => Viewer.open(BSEG.map(s => ({ token: s.token, name: s.key })), SEG_SEL, true);
+  $("#sv-view").onclick = openView;
+  $("#sv-img").onclick = openView;
+  $("#sv-edit").onclick = () => Editor.openBatch(BSEG, SEG_SEL, (idx, overlay, count) => {
+    BSEG[idx].overlay = overlay; BSEG[idx].count = count; renderSegResults(); svSelect(idx);
   });
-  document.querySelectorAll("#segresults .viewseg").forEach(b => b.onclick = () =>
-    Viewer.open(BSEG.map(s => ({ token: s.token, name: s.key })), +b.dataset.i, true));
+  svSelect(SEG_SEL);
+}
+
+function svSelect(i) {
+  SEG_SEL = Math.max(0, Math.min(i, BSEG.length - 1));
+  const s = BSEG[SEG_SEL]; if (!s) return;
+  const T = $("#sv-title"); if (!T) return;
+  T.textContent = s.key + (s.condition ? "  (" + s.condition + ")" : "");
+  $("#sv-pos").textContent = `${SEG_SEL + 1} / ${BSEG.length}`;
+  $("#sv-prev").disabled = SEG_SEL <= 0;
+  $("#sv-next").disabled = SEG_SEL >= BSEG.length - 1;
+  $("#sv-img").src = s.overlay || "";
+  document.querySelectorAll("#segresults .segrow").forEach(r => r.classList.toggle("sel", +r.dataset.i === SEG_SEL));
 }
 
 function measChecklist() {
@@ -1322,7 +1479,8 @@ function buildCompareUI(channels, conditions, metrics) {
     const r = await (await fetch("/api/batch/plot", { method: "POST", body: fd })).json();
     if (r.error) { $("#cmp-fig").innerHTML = `<p class="flag">${esc(r.error)}</p>`; $("#cmp-dl").innerHTML = ""; return; }
     $("#cmp-fig").innerHTML = `<img class="cmpimg" src="${r.figure}" alt="">`;
-    $("#cmp-dl").innerHTML = `<a download="comparison.png" href="${r.figure}">Download plot</a>`;
+    $("#cmp-dl").innerHTML = `<a download="comparison.png" href="${r.figure}">Download plot</a> <button class="savefig">Save to folder</button>`;
+    { const sv = $("#cmp-dl .savefig"); if (sv) sv.onclick = () => saveClick(sv, "comparison.png", r.figure, true); }
     const im = $("#cmp-fig .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
   };
   const plotDebounced = debounce(doPlot, 250);
@@ -1355,7 +1513,8 @@ function buildCompareUI(channels, conditions, metrics) {
     const r = await (await fetch("/api/batch/scatter", { method: "POST", body: fd })).json();
     if (r.error) { $("#sc-fig").innerHTML = `<p class="flag">${esc(r.error)}</p>`; $("#sc-dl").innerHTML = ""; return; }
     $("#sc-fig").innerHTML = `<img class="cmpimg" src="${r.figure}" alt="">`;
-    $("#sc-dl").innerHTML = `<a download="scatter.png" href="${r.figure}">Download plot</a>`;
+    $("#sc-dl").innerHTML = `<a download="scatter.png" href="${r.figure}">Download plot</a> <button class="savefig">Save to folder</button>`;
+    { const sv = $("#sc-dl .savefig"); if (sv) sv.onclick = () => saveClick(sv, "scatter.png", r.figure, true); }
     const im = $("#sc-fig .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
   };
   const scDeb = debounce(doScatter, 250);
@@ -1430,10 +1589,14 @@ function buildCompareUI(channels, conditions, metrics) {
     }
     t += `<div style="margin-top:16px"><img class="cmpimg" src="${r.figure}" alt=""></div>
           <div class="actionrow"><a download="positivity.png" href="${r.figure}">Download plot</a>
-          <button class="dlcell linkish">Download per-cell CSV (${r.n_cells} cells)</button></div>`;
+          <button class="savefig">Save plot to folder</button>
+          <button class="dlcell linkish">Download per-cell CSV (${r.n_cells} cells)</button>
+          <button class="savecell">Save CSV to folder</button></div>`;
     $("#pos-out").innerHTML = t;
     const im = $("#pos-out .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
     const dl = $("#pos-out .dlcell"); if (dl) dl.onclick = () => downloadText("cells_positive.csv", r.cell_csv);
+    { const sf = $("#pos-out .savefig"); if (sf) sf.onclick = () => saveClick(sf, "positivity.png", r.figure, true);
+      const sc = $("#pos-out .savecell"); if (sc) sc.onclick = () => saveClick(sc, "cells_positive.csv", r.cell_csv, false); }
   };
   const posDebounced = debounce(doPos, 250);
   $("#pos-rule").onchange = () => { posRuleUI(); posDebounced(); };
@@ -1456,7 +1619,8 @@ fetch("/api/device").then(r => r.json()).then(d => {
   GPU_OK = !!d.gpu;
   const chip = $("#device-chip");
   chip.classList.remove("hidden");
-  chip.textContent = d.gpu ? `GPU ${d.device}` : "CPU";
+  chip.textContent = d.gpu ? `GPU ${String(d.device || "").toUpperCase()}` : "CPU";
+  DEVICE_LABEL = chip.textContent;
   chip.classList.toggle("cpu", !d.gpu);
   chip.title = d.gpu ? "Cellpose runs on the GPU" : "No GPU found. Cellpose on CPU is slow.";
 }).catch(() => {});
@@ -1506,11 +1670,11 @@ const Viewer = (() => {
     ctx.clearRect(0, 0, W, H);
     const c = hist.counts, mx = Math.max(1, ...c), span = (hist.vmax - hist.vmin) || 1;
     const xlo = (lo - hist.vmin) / span * W, xhi = (hi - hist.vmin) / span * W;
-    ctx.fillStyle = "rgba(224,122,88,0.20)"; ctx.fillRect(xlo, 0, Math.max(1, xhi - xlo), H);
-    ctx.fillStyle = "#b9b6ae";
+    ctx.fillStyle = "rgba(250,250,250,0.10)"; ctx.fillRect(xlo, 0, Math.max(1, xhi - xlo), H);
+    ctx.fillStyle = "#5C5C64";
     const bw = W / c.length;
     for (let i = 0; i < c.length; i++) { const bh = Math.sqrt(c[i] / mx) * (H - 2); ctx.fillRect(i * bw, H - bh, Math.max(1, bw - 0.5), bh); }
-    ctx.strokeStyle = "#e07a58"; ctx.lineWidth = 1;
+    ctx.strokeStyle = "#FAFAFA"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(xlo, 0); ctx.lineTo(xlo, H); ctx.moveTo(xhi, 0); ctx.lineTo(xhi, H); ctx.stroke();
   }
   function redrawHist(i) { const cv = document.querySelector(`.vw-hist[data-i="${i}"]`); if (cv && HISTS[i]) drawHist(cv, HISTS[i], RANGES[i][0], RANGES[i][1]); }

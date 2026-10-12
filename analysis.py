@@ -2,7 +2,7 @@
 Comparison plots from the per-object measurement rows.
 
 - violin_figure: per-marker (channel) violin of a metric across conditions,
-  optional log2 y, with a points overlay (Maru style).
+  optional log2 y, with a points overlay (Maru / Waisman style).
 - positivity: % positive per condition using a control-derived threshold
   (mean + k*SD of the control), plus a bar chart.
 """
