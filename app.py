@@ -747,6 +747,16 @@ async def import_cellpose(token: str = Form(...), file: UploadFile = File(...)):
     })
 
 
+def _attachment(name: str) -> str:
+    """Content-Disposition for a download. HTTP headers only carry ASCII, so non-ASCII file
+    names (Señal, Día) go in filename* (UTF-8, RFC 6266) with an ASCII fallback."""
+    import unicodedata
+    from urllib.parse import quote
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    plain = "".join(ch if ch.isprintable() and ch not in '"\\' else "_" for ch in plain) or "masks.tif"
+    return f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(name)}"
+
+
 @app.post("/api/masks")
 async def download_masks(items: str = Form(...)):
     """Final label masks (after any manual edits), one 16-bit label TIFF per image
@@ -769,7 +779,7 @@ async def download_masks(items: str = Form(...)):
         return JSONResponse({"error": "No masks to download. Segment first (the session may have expired)."}, status_code=410)
     if len(files) == 1:
         name, data = files[0]
-        return Response(data, media_type="image/tiff", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+        return Response(data, media_type="image/tiff", headers={"Content-Disposition": _attachment(name)})
     zbuf = io.BytesIO()
     with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in files:
