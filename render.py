@@ -88,11 +88,14 @@ def _label_colors(m):
 
 
 def compose(channels, colors, visible, masks=None, seg_mode="off", ranges=None,
-            contour_rgb=(255, 235, 0), mask_alpha=0.5, max_side=1200) -> str:
+            contour_rgb=(255, 235, 0), mask_alpha=0.5, max_side=1200, edge_ids=None,
+            edge_rgb=(255, 140, 0)) -> str:
     """
     channels: list of (name, 2D array). colors: list of RGB (0-255) or hex per channel.
     visible: list of bool per channel. ranges: optional per-channel [lo, hi] display range
     (brightness/contrast). masks: label image or None. seg_mode: off|contours|masks.
+    edge_ids: labels excluded at the image border; drawn with edge_rgb contours and a
+    grey, lighter fill so they stay visible but stand apart.
     Returns a base64 PNG data URI.
     """
     if not channels:
@@ -123,16 +126,20 @@ def compose(channels, colors, visible, masks=None, seg_mode="off", ranges=None,
         if scale < 1.0:
             m = zoom(m.astype(np.int32), scale, order=0)
         m = m[:rgb.shape[0], :rgb.shape[1]]
+        edge = np.isin(m, list(edge_ids)) if edge_ids else np.zeros(m.shape, dtype=bool)
         if seg_mode in ("masks", "both"):
             lr, lg, lb = _label_colors(m)
             sel = m > 0
             col = np.stack([lr, lg, lb], axis=-1).astype(np.float32)
+            col[edge] = 128.0                                  # excluded objects: grey fill
             base = rgb.astype(np.float32)
             base[sel] = base[sel] * (1 - mask_alpha) + col[sel] * mask_alpha
             rgb = np.clip(base, 0, 255).astype(np.uint8)
         if seg_mode in ("contours", "both"):
             bnd = _label_boundaries(m)
             rgb[bnd] = np.array(contour_rgb, dtype=np.uint8)
+            if edge.any():
+                rgb[_label_boundaries(np.where(edge, m, 0))] = np.array(edge_rgb, dtype=np.uint8)
 
     from PIL import Image
     buf = io.BytesIO()

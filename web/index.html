@@ -86,6 +86,10 @@
           <h3>Segment</h3>
           <div id="segpick"></div>
           <div id="seg-note" class="note"></div>
+          <div class="edge-opt">
+            <label><input type="checkbox" id="edge-single" checked> Exclude objects touching the image border</label>
+            <p class="note">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. You can change this after segmenting; no new segmentation is needed.</p>
+          </div>
           <div class="actionrow">
             <button id="continue" class="primary" disabled>Segment</button>
             <button id="edit-seg" class="sm hidden">Edit</button>
@@ -512,13 +516,32 @@ function renderMeasure(sel, r, filename) {
 }
 
 // metric columns offered in the plot builders
+// One line describing the edge rule for a segmentation or measurement response.
+function edgeLine(e) {
+  if (!e) return "";
+  return e.exclude
+    ? `${e.excluded} touching the image border excluded (orange outline), ${e.kept} measured.`
+    : `${e.at_edge != null ? e.at_edge : 0} touching the image border, included.`;
+}
+
+// Switch the edge rule for one segmented image; returns the server response (overlay, counts).
+async function setEdgeRule(token, exclude) {
+  const fd = new FormData(); fd.append("token", token); fd.append("exclude_edge", exclude ? "true" : "false");
+  return (await fetch("/api/single/edge", { method: "POST", body: fd })).json();
+}
+
+function showEdgeSummary(sel, r) {
+  if (r && r.edge && r.edge.detected != null)
+    $(sel).insertAdjacentHTML("afterbegin", `<p class="note">${r.edge.detected} objects detected, ${r.edge.excluded} excluded at the image border, ${r.edge.kept} measured.</p>`);
+}
+
 function showWarnings(sel, r) {
   if (r && r.warnings && r.warnings.length)
     $(sel).insertAdjacentHTML("afterbegin", r.warnings.map(w => `<p class="flag">${esc(w)}</p>`).join(""));
 }
 
 function metricsOf(columns) {
-  const META = ["image", "condition", "replicate", "object_id", "channel", "background"];
+  const META = ["image", "condition", "replicate", "object_id", "channel", "background", "at_edge"];
   const NONMETRIC = new Set(["centroid_x", "centroid_y", "com_x", "com_y", "bbox_x", "bbox_y", "stack_position"]);
   let m = (columns || []).filter(c => !META.includes(c) && !NONMETRIC.has(c));
   if (m.includes("mean_intensity")) { m = m.filter(x => x !== "mean_intensity"); m.unshift("mean_intensity"); }
@@ -701,6 +724,11 @@ function buildControls(f, rejected, skipped) {
       SEG_OVERLAY = overlay; addSegView(count); setView("segmentation");
       $("#msgs").innerHTML = `<div class="result-box">${count} objects after editing.</div>`;
       singleCtx(count);
+      setEdgeRule(SINGLE_TOKEN, $("#edge-single").checked).then(r => {
+        if (r.error) return;
+        SEG_OVERLAY = r.overlay; addSegView(r.count); setView("segmentation");
+        $("#msgs").innerHTML = `<div class="result-box">${r.count} objects after editing. ${edgeLine(r.edge)}</div>`;
+      });
     })).catch(e => alert("Editor error: " + e));
   };
 
@@ -718,16 +746,27 @@ function buildControls(f, rejected, skipped) {
     $("#measure-out").innerHTML = loadingHTML("measuring every channel inside each object");
     const fd = new FormData(); fd.append("token", SINGLE_TOKEN);
     fd.append("subtract_bg", $("#bg-sub-single").checked ? "true" : "false");
+    fd.append("exclude_edge", $("#edge-single").checked ? "true" : "false");
     const r = await (await fetch("/api/single/measure", { method: "POST", body: fd })).json();
     if (r.error) { $("#measure-out").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
     $("#measure-meta").textContent = r.channels ? `${r.channels.length} channels` : "";
     renderMeasure("#measure-out", r, "measurements.csv");
+    showEdgeSummary("#measure-out", r);
     showWarnings("#measure-out", r);
     if (r.result_token) {
       singlePlotPanel(r);
       $("#to-plot").classList.remove("hidden");
       $("#to-plot").onclick = () => { Flow.enable("plot"); Flow.go("plot"); };
     }
+  };
+
+  // Edge rule: chosen before segmenting; switching it afterwards redraws without re-segmenting.
+  $("#edge-single").onchange = async () => {
+    if (SEG_OVERLAY == null || !SINGLE_TOKEN) return;
+    const r = await setEdgeRule(SINGLE_TOKEN, $("#edge-single").checked);
+    if (r.error) { $("#msgs").innerHTML = `<div class="flag">${esc(r.error)}</div>`; return; }
+    SEG_OVERLAY = r.overlay; addSegView(r.count); setView("segmentation");
+    $("#msgs").innerHTML = `<div class="result-box">${r.count} objects. ${edgeLine(r.edge)}</div>`;
   };
 
   // Segment selection enables the primary action
@@ -746,6 +785,7 @@ function buildControls(f, rejected, skipped) {
     fd.append("channel", sel.value);
     fd.append("type", "nuclei");
     fd.append("diameter", "");
+    fd.append("exclude_edge", $("#edge-single").checked ? "true" : "false");
     try {
       const r = await (await fetch("/api/single/segment", { method: "POST", body: fd })).json();
       clearInterval(timer);
@@ -758,7 +798,7 @@ function buildControls(f, rejected, skipped) {
       $("#measure-btn").classList.remove("hidden");
       $("#bg-sub-single-wrap").classList.remove("hidden");
       const chName = $(`#mk-${sel.value}`) ? $(`#mk-${sel.value}`).value : `Channel ${Number(sel.dataset.i) + 1}`;
-      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)} with Cellpose-SAM, ${esc(r.device || "")}, ${secs}.</div>`;
+      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)} with Cellpose-SAM, ${esc(r.device || "")}, ${secs}. ${edgeLine(r.edge)}</div>`;
       singleCtx(r.count, chName);
     } catch (e) {
       clearInterval(timer);
@@ -1179,6 +1219,10 @@ function renderChannels() {
       <select id="segchannel">${chanOpts(SEG_CHANNEL)}</select></label>
     <div id="chan-msg"></div></div>`;
 
+  h += `<div class="block edge-opt">
+    <label><input type="checkbox" id="edge-batch" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label>
+    <p class="note">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. You can change this after segmenting; no new segmentation is needed.</p></div>`;
+
   h += `<div class="rowend"><button class="back">Back</button>
         <button id="segall" class="primary">Segment all images</button></div>`;
   h += `</div><aside class="work-right"><div class="viewer-inline">
@@ -1205,10 +1249,12 @@ function renderChannels() {
   $("#cx-img").onclick = () => openInspector(CX_IDX);
   cxOpen(0);
   $("#segall").onclick = segmentAllBatch;
+  $("#edge-batch").onchange = () => { EDGE_EXCLUDE = $("#edge-batch").checked; };
   updateSegBtn();
 }
 
-let BSEG = [];   // segmented batch fields: {key, token, count, overlay, condition, replicate, control}
+let BSEG = [];   // segmented batch fields: {key, token, count, overlay, edge, condition, replicate, control}
+let EDGE_EXCLUDE = true;   // exclude objects touching the image border (batch; the single flow reads #edge-single)
 let SEG_SEL = 0;   // which segmented image is shown in the docked results viewer
 
 function renderSegmentPanel() {
@@ -1217,12 +1263,22 @@ function renderSegmentPanel() {
     <p class="note">Segmenting with <b>Cellpose-SAM</b>${DEVICE_LABEL ? ", on " + DEVICE_LABEL : ""}.</p>
     <div class="loading" id="segbar-wrap"><span class="prog run" id="segbar"><i></i></span>
       <span id="segprogress" class="meta"></span></div>
+    <div class="edge-opt"><label><input type="checkbox" id="edge-batch-after" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label>
+      <span class="meta">Changing this redraws every image; no new segmentation is run.</span></div>
     <div id="segresults"></div>
     <div class="rowend">
       <button class="back">Back</button>
       <button id="to-measure" class="primary hidden">Continue to measurements</button>
     </div>`;
   $("#to-measure").onclick = () => { Flow.enable("measure"); Flow.go("measure"); renderMeasurePanel(); };
+  $("#edge-batch-after").onchange = async () => {
+    EDGE_EXCLUDE = $("#edge-batch-after").checked;
+    for (const s of BSEG) {
+      const r = await setEdgeRule(s.token, EDGE_EXCLUDE);
+      if (!r.error) { s.overlay = r.overlay; s.count = r.count; s.edge = r.edge; }
+    }
+    renderSegResults();
+  };
   renderSegResults();
 }
 
@@ -1267,9 +1323,10 @@ async function segmentAllBatch() {
       const fd = new FormData();
       fd.append("token", f.__token); fd.append("key", f.key);
       fd.append("channel", SEG_CHANNEL); fd.append("type", segType); fd.append("diameter", "");
+      fd.append("exclude_edge", EDGE_EXCLUDE ? "true" : "false");
       const r = await (await fetch("/api/batch/segment_one", { method: "POST", body: fd })).json();
       if (r.error) { clearInterval(timer); segBar(done, N, false); $("#segprogress").innerHTML = `<span class="flag">${esc(f.key)}: ${esc(r.error)}</span>`; btn.disabled = false; return; }
-      BSEG.push({ key: f.key, token: r.token, count: r.count, overlay: r.overlay,
+      BSEG.push({ key: f.key, token: r.token, count: r.count, overlay: r.overlay, edge: r.edge,
                   condition: f.condition, replicate: f.replicate, control: f.control });
       done++; current = ""; renderSegResults(); tick();
     } catch (e) {
@@ -1293,12 +1350,16 @@ function renderSegResults() {
   if (!BSEG.length) { box.innerHTML = ""; return; }
   if (SEG_SEL >= BSEG.length) SEG_SEL = BSEG.length - 1;
   if (SEG_SEL < 0) SEG_SEL = 0;
-  let list = `<table class="batch"><thead><tr><th>Field</th><th>Condition</th><th class="num">Objects</th></tr></thead><tbody>`;
+  let list = `<table class="batch"><thead><tr><th>Field</th><th>Condition</th><th class="num">Objects</th>
+    <th class="num">At border</th><th class="num">Measured</th></tr></thead><tbody>`;
   BSEG.forEach((s, i) => {
+    const e = s.edge || {};
     list += `<tr class="segrow" data-i="${i}">
       <td>${esc(s.key)}</td>
       <td>${esc(s.condition || "")}${s.control ? ` <span class="meta">control</span>` : ""}</td>
-      <td class="num">${s.count}</td></tr>`;
+      <td class="num">${s.count}</td>
+      <td class="num">${e.at_edge != null ? e.at_edge : ""}${e.at_edge && !e.exclude ? ` <span class="meta">included</span>` : ""}</td>
+      <td class="num">${e.kept != null ? e.kept : s.count}</td></tr>`;
   });
   list += `</tbody></table>`;
   box.innerHTML = `<div class="work-grid"><div class="work-left">${list}</div>
@@ -1316,6 +1377,10 @@ function renderSegResults() {
   $("#sv-img").onclick = openView;
   $("#sv-edit").onclick = () => Editor.openBatch(BSEG, SEG_SEL, (idx, overlay, count) => {
     BSEG[idx].overlay = overlay; BSEG[idx].count = count; renderSegResults(); svSelect(idx);
+    setEdgeRule(BSEG[idx].token, EDGE_EXCLUDE).then(r => {
+      if (r.error) return;
+      Object.assign(BSEG[idx], { overlay: r.overlay, count: r.count, edge: r.edge }); renderSegResults(); svSelect(idx);
+    });
   });
   svSelect(SEG_SEL);
 }
@@ -1365,11 +1430,13 @@ function renderMeasurePanel() {
     $("#measure-out-batch").innerHTML = loadingHTML("measuring every channel inside each object");
     const fd = new FormData(); fd.append("items", JSON.stringify(items));
     fd.append("subtract_bg", $("#bg-sub") && $("#bg-sub").checked ? "true" : "false");
+    fd.append("exclude_edge", EDGE_EXCLUDE ? "true" : "false");
     fd.append("measurements", JSON.stringify(MEAS_SEL));
     const r = await (await fetch("/api/batch/measure", { method: "POST", body: fd })).json();
     if (r.error) { $("#measure-out-batch").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
     RESULT_TOKEN = r.result_token || null;
     renderMeasure("#measure-out-batch", r, "measurements.csv");
+    showEdgeSummary("#measure-out-batch", r);
     showWarnings("#measure-out-batch", r);
     buildCompareUI(r.channels || [], r.conditions || [], metricsOf(r.columns));
     Flow.enable("analyze");

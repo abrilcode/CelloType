@@ -35,11 +35,14 @@ from organize import organize
 from single import inspect_single, field_channels
 
 
-def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="object", bg_infos=None):
+def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="object", bg_infos=None,
+                   exclude_edge=None, edge_infos=None):
     """Measure a list of {token, image, condition, replicate} into tidy rows (one row
     per segmented object per channel). measurements selects the set (None -> basics).
     The background (when subtract_bg) is estimated per image and channel; if bg_infos is
-    a list, one {image, ...} entry per image is appended (see measure.measure_field)."""
+    a list, one {image, ...} entry per image is appended (see measure.measure_field).
+    Objects touching the image border are dropped when exclude_edge is True (None = use each
+    image's own setting); they still count as objects for the background estimate."""
     allrows = []
     for it in entries:
         session = _SINGLE_SESSIONS.get(it.get("token"))
@@ -52,6 +55,11 @@ def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="obj
                                      bg_method=bg_method, bg_info=info)
         if bg_infos is not None and info:
             bg_infos.append({"image": it.get("image", ""), **info})
+        exc = session.get("exclude_edge", True) if exclude_edge is None else exclude_edge
+        if edge_infos is not None:
+            edge_infos.append({"image": it.get("image", ""), **_edge_summary(session["masks"], exc)})
+        if exc:
+            rows = [r for r in rows if not r.get("at_edge")]
         for r in rows:
             r["image"] = it.get("image", "")
             r["condition"] = it.get("condition") or ""
@@ -82,6 +90,30 @@ def _bg_warnings(infos, on: bool):
             out.append(f"Few background pixels in {inf.get('image', 'an image')} "
                        f"({100 * inf['fraction']:.0f}% of the image): the background estimate is less reliable.")
     return out
+
+
+def _flag(value: str, default: bool = True) -> bool:
+    """Form checkbox value -> bool ("" keeps the default)."""
+    v = (value or "").strip().lower()
+    return default if v == "" else v == "true"
+
+
+def _edge_summary(masks, exclude: bool) -> dict:
+    """Counts for the edge-object rule (objects touching the image border)."""
+    if masks is None:
+        return {"exclude": bool(exclude), "rule": "touching the image border",
+                "detected": 0, "at_edge": 0, "excluded": 0, "kept": 0}
+    n = segment.count_objects(masks)
+    k = len(measure.edge_object_ids(masks))
+    exc = k if exclude else 0
+    return {"exclude": bool(exclude), "rule": "touching the image border",
+            "detected": n, "at_edge": k, "excluded": exc, "kept": n - exc}
+
+
+def _overlay(session, arr, masks):
+    """Segmentation overlay; objects excluded at the border get their own outline colour."""
+    ids = measure.edge_object_ids(masks) if session.get("exclude_edge", True) else None
+    return segment.overlay_png_b64(arr, masks, kind=session.get("seg_type", "nuclei"), edge_ids=ids)
 
 
 def _rows_csv(rows, columns) -> str:
@@ -155,7 +187,7 @@ async def single_inspect(files: List[UploadFile] = File(...)):
     result = inspect_single(paths, with_preview=True)
     if result.get("field"):
         token = uuid.uuid4().hex
-        _SINGLE_SESSIONS[token] = {"paths": paths, "masks": None}
+        _SINGLE_SESSIONS[token] = {"paths": paths, "masks": None, "exclude_edge": True}
         result["token"] = token
     return JSONResponse(result)
 
@@ -188,7 +220,8 @@ async def single_commit(token: str = Form(...), idmap: str = Form(...)):
     arr = field_channels(session["paths"])[session["seg_channel"]][1]
     return JSONResponse({
         "count": segment.count_objects(masks),
-        "overlay": segment.overlay_png_b64(arr, masks, kind=session.get("seg_type", "nuclei")),
+        "overlay": _overlay(session, arr, masks),
+        "edge": _edge_summary(masks, session.get("exclude_edge", True)),
     })
 
 
@@ -198,7 +231,8 @@ async def single_commit(token: str = Form(...), idmap: str = Form(...)):
 
 @app.post("/api/single/measure")
 async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"),
-                         measurements: str = Form(""), bg_method: str = Form("object")):
+                         measurements: str = Form(""), bg_method: str = Form("object"),
+                         exclude_edge: str = Form("")):
     session = _SINGLE_SESSIONS.get(token)
     if not session or session.get("masks") is None:
         return JSONResponse({"error": "Segment first, then measure."}, status_code=410)
@@ -212,11 +246,17 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
                                  subtract_bg=bg_on, measurements=sel, bg_method=bg_method, bg_info=info)
     image = os.path.splitext(os.path.basename(session["paths"][0]))[0]
     bg_infos = [{"image": image, **info}] if info else []
+    if exclude_edge.strip():
+        session["exclude_edge"] = _flag(exclude_edge)
+    exc = session.get("exclude_edge", True)
+    edge_infos = [{"image": image, **_edge_summary(session["masks"], exc)}]
+    if exc:
+        rows = [r for r in rows if not r.get("at_edge")]
     for r in rows:
         r["image"] = image
         r["condition"] = image     # one "condition" so the per-channel plot can group
         r["replicate"] = 1
-    cols = ["image", "object_id", "channel"] + measure.columns_for(sel, background=bg_on)
+    cols = ["image", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     _MEASURE_RESULTS[rtok] = rows
     if len(_MEASURE_RESULTS) > 8:
@@ -227,26 +267,32 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
         "columns": cols, "preview": rows[:100], "nrows": len(rows),
         "csv": _rows_csv(rows, cols),
         "params": {"subtract_bg": bg_on, "bg_method": bg_method if bg_on else None, "background": bg_infos},
+        "edge": {"exclude": all(e["exclude"] for e in edge_infos) if edge_infos else True,
+                 "rule": "touching the image border",
+                 "detected": sum(e["detected"] for e in edge_infos), "excluded": sum(e["excluded"] for e in edge_infos),
+                 "kept": sum(e["kept"] for e in edge_infos), "per_image": edge_infos},
         "warnings": _bg_warnings(bg_infos, bg_on),
     })
 
 
 @app.post("/api/batch/measure")
 async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false"),
-                        measurements: str = Form(""), bg_method: str = Form("object")):
+                        measurements: str = Form(""), bg_method: str = Form("object"),
+                        exclude_edge: str = Form("")):
     # items = JSON list of {token, image, condition, replicate}
     bg_on, bg_method, err = _bg_params(subtract_bg, bg_method)
     if err:
         return err
     sel = json.loads(measurements) if measurements.strip() else None
-    bg_infos = []
+    bg_infos, edge_infos = [], []
+    exc = _flag(exclude_edge) if exclude_edge.strip() else None
     allrows = _measure_items(json.loads(items), subtract_bg=bg_on, measurements=sel, bg_method=bg_method,
-                             bg_infos=bg_infos)
+                             bg_infos=bg_infos, exclude_edge=exc, edge_infos=edge_infos)
     if not allrows:
         return JSONResponse({"error": "No measurements. Segment the images first, then Measure (the session may have expired)."}, status_code=400)
     chans = list(dict.fromkeys(r["channel"] for r in allrows))
     conds = list(dict.fromkeys(r["condition"] for r in allrows))
-    cols = ["image", "condition", "replicate", "object_id", "channel"] + measure.columns_for(sel, background=bg_on)
+    cols = ["image", "condition", "replicate", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     _MEASURE_RESULTS[rtok] = allrows
     if len(_MEASURE_RESULTS) > 8:                         # keep only recent results
@@ -256,6 +302,10 @@ async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false")
         "columns": cols, "preview": allrows[:100], "nrows": len(allrows),
         "csv": _rows_csv(allrows, cols), "channels": chans, "conditions": conds,
         "params": {"subtract_bg": bg_on, "bg_method": bg_method if bg_on else None, "background": bg_infos},
+        "edge": {"exclude": all(e["exclude"] for e in edge_infos) if edge_infos else True,
+                 "rule": "touching the image border",
+                 "detected": sum(e["detected"] for e in edge_infos), "excluded": sum(e["excluded"] for e in edge_infos),
+                 "kept": sum(e["kept"] for e in edge_infos), "per_image": edge_infos},
         "warnings": _bg_warnings(bg_infos, bg_on),
     })
 
@@ -439,7 +489,8 @@ async def render_view(token: str = Form(...), spec: str = Form("{}")):
     seg = s.get("seg", "off")
     masks = session.get("masks") if seg in ("contours", "masks", "both") else None
     try:
-        img = render.compose(channels, colors, visible, masks=masks, seg_mode=seg, ranges=ranges)
+        ids = measure.edge_object_ids(masks) if (masks is not None and session.get("exclude_edge", True)) else None
+        img = render.compose(channels, colors, visible, masks=masks, seg_mode=seg, ranges=ranges, edge_ids=ids)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     return JSONResponse({"image": img, "channels": [nm for nm, _ in channels],
@@ -523,7 +574,8 @@ async def reload_cellpose(token: str = Form(...)):
     session["masks"] = masks
     return JSONResponse({
         "count": segment.count_objects(masks),
-        "overlay": segment.overlay_png_b64(arr, masks, kind=session.get("seg_type", "nuclei")),
+        "overlay": _overlay(session, arr, masks),
+        "edge": _edge_summary(masks, session.get("exclude_edge", True)),
     })
 
 
@@ -543,14 +595,31 @@ async def import_cellpose(token: str = Form(...), file: UploadFile = File(...)):
     session["masks"] = masks
     return JSONResponse({
         "count": segment.count_objects(masks),
-        "overlay": segment.overlay_png_b64(arr, masks, kind=session.get("seg_type", "nuclei")),
+        "overlay": _overlay(session, arr, masks),
+        "edge": _edge_summary(masks, session.get("exclude_edge", True)),
     })
+
+
+@app.post("/api/single/edge")
+async def set_edge_rule(token: str = Form(...), exclude_edge: str = Form("true")):
+    """Turn the exclusion of objects touching the image border on or off for one segmented
+    image (single image or batch field) and return the redrawn overlay and the counts.
+    No new segmentation is run: the rule only decides which objects are measured."""
+    session = _SINGLE_SESSIONS.get(token)
+    if not session or session.get("masks") is None:
+        return JSONResponse({"error": "Segment first."}, status_code=410)
+    session["exclude_edge"] = _flag(exclude_edge)
+    masks = session["masks"]
+    arr = field_channels(session["paths"])[session["seg_channel"]][1]
+    return JSONResponse({"count": segment.count_objects(masks),
+                         "overlay": _overlay(session, arr, masks),
+                         "edge": _edge_summary(masks, session["exclude_edge"])})
 
 
 @app.post("/api/batch/segment_one")
 async def batch_segment_one(token: str = Form(...), key: str = Form(...),
                             channel: int = Form(...), type: str = Form("nuclei"),
-                            diameter: str = Form("")):
+                            diameter: str = Form(""), exclude_edge: str = Form("true")):
     """Segment ONE batch field on the chosen channel (nuclei OR whole cells). Called
     once per image. `type` is 'nuclei' or 'cells' and only affects the overlay colour."""
     mapping = _BATCH_SESSIONS.get(token)
@@ -564,10 +633,12 @@ async def batch_segment_one(token: str = Form(...), key: str = Form(...),
     masks, flows = segment.segment_channel(arr, diameter=diam, return_flows=True)
     # each segmented field gets its own single-session so the editor/measurement/viewer reuse works per image
     field_token = uuid.uuid4().hex
-    _SINGLE_SESSIONS[field_token] = {"paths": mapping[key], "masks": masks, "flows": flows,
-                                     "seg_channel": channel, "seg_type": type}
+    session = {"paths": mapping[key], "masks": masks, "flows": flows,
+               "seg_channel": channel, "seg_type": type, "exclude_edge": _flag(exclude_edge)}
+    _SINGLE_SESSIONS[field_token] = session
     return JSONResponse({"key": key, "count": segment.count_objects(masks),
-                         "overlay": segment.overlay_png_b64(arr, masks, kind=type),
+                         "overlay": _overlay(session, arr, masks),
+                         "edge": _edge_summary(masks, session["exclude_edge"]),
                          "token": field_token})
 
 
@@ -577,6 +648,7 @@ async def single_segment(
     channel: int = Form(...),
     type: str = Form("nuclei"),
     diameter: str = Form(""),
+    exclude_edge: str = Form("true"),
 ):
     session = _SINGLE_SESSIONS.get(token)
     if not session:
@@ -593,10 +665,12 @@ async def single_segment(
     session["flows"] = flows
     session["seg_channel"] = channel
     session["seg_type"] = type
+    session["exclude_edge"] = _flag(exclude_edge)
 
     return JSONResponse({
         "count": segment.count_objects(masks),
-        "overlay": segment.overlay_png_b64(arr, masks, kind=type),
+        "overlay": _overlay(session, arr, masks),
+        "edge": _edge_summary(masks, session["exclude_edge"]),
         "channel": channel,
         "type": type,
         "device": segment.device_name(),
