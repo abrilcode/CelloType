@@ -10,6 +10,9 @@ Design rules:
   LoadError with an actionable message so the caller can reject it.
 - Channels are kept at native bit depth (measurement happens on these later).
 - PNG/JPEG are accepted but marked non-quantitative (8-bit / lossy).
+- One 2D plane per file (reviewer Pérez, obs. 4): if a file has several Z planes, time
+  points, scenes or series, index 0 of each is used and a warning says so; CZI tile scans
+  (mosaics) are rejected; TIFF stacks whose planes are not labelled are flagged.
 """
 
 from __future__ import annotations
@@ -41,10 +44,18 @@ class LoadedImage:
     quantitative: bool             # False for 8-bit/lossy display formats
     colors: List = field(default_factory=list)   # per-channel display color (hex) or None
     warnings: List[str] = field(default_factory=list)
+    dims: dict = field(default_factory=dict)    # size of every non-YX, non-channel axis found (+ "series")
+    plane: dict = field(default_factory=dict)   # index used on each of those axes
+    multi_plane: bool = False                   # some axis had more than one plane: only one is used
+    unlabelled_planes: bool = False             # TIFF planes without axis labels, taken as channels
 
     @property
     def n_channels(self) -> int:
         return len(self.channels)
+
+    @property
+    def needs_attention(self) -> bool:
+        return self.multi_plane or self.unlabelled_planes
 
 
 def bit_depth_of(dtype: np.dtype) -> int:
@@ -64,16 +75,19 @@ def ext_of(path: str) -> str:
     return os.path.splitext(path)[1].lower()
 
 
-def load_file(path: str) -> LoadedImage:
-    """Read a file into a LoadedImage. Raises LoadError on anything unreadable."""
+def load_file(path: str, plane: dict = None) -> LoadedImage:
+    """Read a file into a LoadedImage. Raises LoadError on anything unreadable.
+    plane: index to use per axis, e.g. {"Z": 2, "T": 0, "S": 0, "series": 0}; every axis
+    defaults to 0 (hook for a future plane selector; the app always uses the defaults)."""
     ext = ext_of(path)
     if ext not in SUPPORTED_EXTS:
         raise LoadError(f"Unsupported format '{ext}'. Accepted: {sorted(SUPPORTED_EXTS)}")
+    plane = dict(plane or {})
     try:
         if ext == ".czi":
-            return _load_czi(path)
+            return _load_czi(path, plane)
         if ext in (".tif", ".tiff"):
-            return _load_tiff(path)
+            return _load_tiff(path, plane)
         return _load_pil(path)  # png / jpg / jpeg
     except LoadError:
         raise
@@ -81,13 +95,54 @@ def load_file(path: str) -> LoadedImage:
         raise LoadError(f"Could not read file: {e}")
 
 
+# ---------------------------------------------------------------- planes
+
+_AXIS_NAMES = {"Z": ("Z plane", "Z planes"), "T": ("time point", "time points"),
+               "S": ("scene", "scenes"), "series": ("series", "series")}
+
+
+def plane_warning(axis: str, n: int, used: int) -> str:
+    """Plain-language warning for an axis with n planes of which one (index `used`) is kept."""
+    one, many = _AXIS_NAMES.get(axis, (f"plane along axis {axis}", f"planes along axis {axis}"))
+    msg = (f"This file has {n} {many}. CelloType analyses one 2D plane: {one} {used + 1} of {n} "
+           f"(index {used}) is used")
+    if axis == "Z":
+        msg += "; it may not be the in-focus plane."
+    elif axis in ("S", "series"):
+        msg += ". To analyse the others, save each one as its own file."
+    else:
+        msg += "."
+    return msg
+
+
 # ---------------------------------------------------------------- CZI
 
-def _load_czi(path: str) -> LoadedImage:
+def _czi_sizes(czi) -> dict:
+    """Size of every axis across all scenes (scenes may differ in shape)."""
+    lo, hi = {}, {}
+    for block in czi.get_dims_shape():
+        for d, (a, b) in block.items():
+            lo[d] = min(lo.get(d, a), a)
+            hi[d] = max(hi.get(d, b), b)
+    return {d: hi[d] - lo[d] for d in hi}
+
+
+def _load_czi(path: str, plane: dict = None) -> LoadedImage:
     from aicspylibczi import CziFile
 
+    plane = plane or {}
     czi = CziFile(path)
-    data, shape = czi.read_image()   # ndarray + [(dim_char, size), ...]
+    sizes = _czi_sizes(czi)
+    if sizes.get("M", 1) > 1:
+        raise LoadError(
+            f"This CZI is a tile scan (mosaic) of {sizes['M']} tiles. CelloType analyses one field of "
+            "view: export the stitched image or a single tile from ZEN and upload that.")
+    # read only the plane that is used (index 0 of every non-C/Y/X axis by default)
+    want = {d: int(plane.get(d, 0)) for d in sizes if d not in ("C", "Y", "X", "A", "M")}
+    for d, i in want.items():
+        if not 0 <= i < sizes[d]:
+            raise LoadError(f"Plane {i} on axis {d} does not exist (the file has {sizes[d]}).")
+    data, shape = czi.read_image(**want)   # ndarray + [(dim_char, size), ...]
     dims = [d for d, _ in shape]
 
     # Collapse every non-CYX axis by taking index 0 (single scene/tile/z).
@@ -116,6 +171,8 @@ def _load_czi(path: str) -> LoadedImage:
 
     names, colors = _czi_channels_meta(czi, len(channels))
     h, w = channels[0].shape[:2]
+    found = {d: sizes[d] for d in want}
+    warns = [plane_warning(d, n, want[d]) for d, n in found.items() if n > 1]
     return LoadedImage(
         fmt="czi",
         channels=channels,
@@ -126,6 +183,10 @@ def _load_czi(path: str) -> LoadedImage:
         bit_depth=bit_depth_of(channels[0].dtype),
         quantitative=True,
         colors=colors,
+        warnings=warns,
+        dims=found,
+        plane=want,
+        multi_plane=any(n > 1 for n in found.values()),
     )
 
 
@@ -153,15 +214,29 @@ def _czi_channels_meta(czi, n: int):
 
 # ---------------------------------------------------------------- TIFF
 
-def _load_tiff(path: str) -> LoadedImage:
+def _load_tiff(path: str, plane: dict = None) -> LoadedImage:
     import tifffile
 
+    plane = plane or {}
     with tifffile.TiffFile(path) as tf:
-        series = tf.series[0]
+        n_series = len(tf.series)
+        si = int(plane.get("series", 0))
+        if not 0 <= si < n_series:
+            raise LoadError(f"Series {si} does not exist (the file has {n_series}).")
+        series = tf.series[si]
         axes = series.axes            # e.g. "YX", "CYX", "YXC", "ZCYX"
         arr = series.asarray()
 
-    channels = _split_by_axes(arr, axes)
+    info = {}
+    channels = _split_by_axes(arr, axes, plane, info)
+    found, used = dict(info["collapsed"]), {d: int(plane.get(d, 0)) for d in info["collapsed"]}
+    warns = [plane_warning(d, n, used[d]) for d, n in found.items() if n > 1]
+    if n_series > 1:
+        found["series"], used["series"] = n_series, si
+        warns.insert(0, plane_warning("series", n_series, si))
+    if info.get("unlabelled"):
+        warns.append(f"The {len(channels)} planes of this TIFF are not labelled, so they are treated as "
+                     "channels. If they are Z planes or time points, re-save the file from Fiji as a hyperstack.")
     h, w = channels[0].shape[:2]
     return LoadedImage(
         fmt="tiff",
@@ -173,16 +248,35 @@ def _load_tiff(path: str) -> LoadedImage:
         bit_depth=bit_depth_of(channels[0].dtype),
         quantitative=True,
         colors=[None] * len(channels),
+        warnings=warns,
+        dims=found,
+        plane=used,
+        multi_plane=any(n > 1 for n in found.values()),
+        unlabelled_planes=bool(info.get("unlabelled")),
     )
 
 
-def _split_by_axes(arr: np.ndarray, axes: str) -> List[np.ndarray]:
-    """Reduce a TIFF array to a list of 2D channel planes using its axes string."""
+def _split_by_axes(arr: np.ndarray, axes: str, plane: dict = None, info: dict = None) -> List[np.ndarray]:
+    """Reduce a TIFF array to a list of 2D channel planes using its axes string.
+    Every labelled non-channel axis (Z, T, ...) is reduced to one plane (index 0 unless
+    `plane` says otherwise); info["collapsed"] gets {axis: size}. One unlabelled axis
+    (tifffile I or Q: no metadata) is kept as channels and info["unlabelled"] is set;
+    two or more unlabelled axes cannot be interpreted and raise LoadError."""
+    plane = plane or {}
+    info = info if info is not None else {}
+    info.setdefault("collapsed", {})
     axes = axes.upper()
     if arr.ndim == 2:
         return [np.asarray(arr)]
 
-    # Collapse any Z/T/etc. (not C/S/Y/X) by taking index 0.
+    unl = [c for c in axes if c in ("I", "Q")]
+    if len(unl) > 1 or (unl and "C" in axes):
+        raise LoadError(
+            f"This TIFF has {arr.ndim - 2} dimensions besides the image and not all of them are labelled "
+            f"(shape {tuple(arr.shape)}), so its channels cannot be identified. Re-save it from Fiji as a "
+            "hyperstack (with channels, Z and time labelled) or as one file per channel.")
+
+    # Collapse any Z/T/etc. (not C/S/Y/X) to one plane.
     a = arr
     ax = list(axes)
     i = 0
@@ -190,7 +284,11 @@ def _split_by_axes(arr: np.ndarray, axes: str) -> List[np.ndarray]:
         if ax[i] in ("Y", "X", "C", "S", "I", "Q"):
             i += 1
             continue
-        a = np.take(a, 0, axis=i)
+        idx = int(plane.get(ax[i], 0))
+        if not 0 <= idx < a.shape[i]:
+            raise LoadError(f"Plane {idx} on axis {ax[i]} does not exist (the file has {a.shape[i]}).")
+        info["collapsed"][ax[i]] = int(a.shape[i])
+        a = np.take(a, idx, axis=i)
         ax.pop(i)
 
     # Find the channel-like axis.
@@ -204,6 +302,8 @@ def _split_by_axes(arr: np.ndarray, axes: str) -> List[np.ndarray]:
             return [np.asarray(a)]
         # 3D with no labeled channel axis: assume smallest non-YX axis is channels
         ch_axis = 0
+    if ax[ch_axis] in ("I", "Q") and a.shape[ch_axis] > 1:
+        info["unlabelled"] = True
     a = np.moveaxis(a, ch_axis, 0)
     return [np.asarray(a[i]) for i in range(a.shape[0])]
 
