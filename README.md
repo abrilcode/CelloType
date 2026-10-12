@@ -18,7 +18,7 @@ frontend that you run on localhost.
 - Interactive viewer: per channel colour and brightness/contrast with a
   histogram and numeric min/max (like ImageJ), plus the segmentation shown as
   contours, filled masks, or both, over any channel or the merged composite.
-- Batch mode: organize many fields into conditions and replicates, segment in one
+- Batch mode: organize many fields (technical replicates) into conditions, segment in one
   pass, and pool the measurements.
 - Plots: violin and box distributions, co-expression scatter, and positivity
   (percent positive), with palette, grouping and log2 options.
@@ -74,7 +74,7 @@ Single image:
 
 Batch:
 
-1. Upload many files and organize them into conditions and replicates.
+1. Upload many files and organize them into conditions (each field, or Foto number, is a technical replicate).
 2. Pick the segmentation channel and segment all fields.
 3. Measure, then build violin, scatter or positivity plots and export.
 
@@ -86,6 +86,17 @@ import buttons in the app:
 ```bash
 pip install "cellpose[gui]"
 ```
+
+## Exported tables: changes after the thesis review
+
+- `at_edge` (0 or 1) after `channel`. Objects touching the image border are left out by default.
+- `background` (the value subtracted) when background subtraction is on.
+- Sizes in µm next to the pixel columns (`area_um2`, `perimeter_um`, `ellipse_major_um`,
+  `ellipse_minor_um`, `feret_max_um`) when the pixel size is known; empty otherwise.
+- `replicate` is now `technical_replicate` (batch `measurements.csv` and `cells_positive.csv`).
+  It is the field (Foto) number, not a biological replicate.
+- Every table can be saved with a `<table>_parameters.json` file (how it was produced) and the
+  final masks.
 
 ## Validation
 

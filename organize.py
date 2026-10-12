@@ -29,7 +29,8 @@ from loaders import (
     resolve_color,
 )
 
-# Anchor on a "Foto<number>" token (their convention for replicate/field).
+# Anchor on a "Foto<number>" token (their convention for the field number; shown and exported
+# as the technical replicate: another imaged position of the sample, not a biological replicate).
 _FOTO_RE = re.compile(r"[-_ ]?foto\s*0*(\d+)", re.IGNORECASE)
 
 # Substrings that suggest a control condition (user confirms).
@@ -181,14 +182,14 @@ def _make_field(key, mode, files, parsed, channels, quantitative, warnings,
         status = "needs_attention"
 
     if parsed.get("replicate") is None:
-        flags.append("Replicate (Foto number) not detected. Set it manually (required).")
+        flags.append("Technical replicate (Foto number) not detected. Set it manually (required).")
         if status == "ok":
             status = "needs_attention"
 
     if not parsed.get("matched"):
         flags.append(
             "Filename does not match 'condition-Foto<n>[-marker]'. "
-            "Set condition and replicate manually before processing."
+            "Set condition and technical replicate manually before processing."
         )
         status = "needs_attention"
 

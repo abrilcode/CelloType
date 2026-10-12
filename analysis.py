@@ -176,9 +176,9 @@ def comparison_figure(rows, value: str = "mean_intensity", log2: bool = False,
         raise ValueError("No data to plot." if value not in pd.DataFrame(rows) else f"No values of {value} to plot.")
     df["condition"] = df["condition"].astype(str)
     df["channel"] = df["channel"].astype(str)
-    # photo label = the replicate if the user set one, else the field/image key (always present)
+    # photo label = the technical replicate (Foto number) if set, else the field/image key (always present)
     def _photo(r):
-        rep = str(r.get("replicate", "")).strip()
+        rep = str(r.get("technical_replicate", "")).strip()
         return rep if rep not in ("", "None") else str(r.get("image", ""))
     df["_photo"] = df.apply(_photo, axis=1)
 
