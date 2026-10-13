@@ -9,7 +9,6 @@ Run:
   .venv/bin/uvicorn app:app --host 127.0.0.1 --port 8010
 """
 
-import base64
 import csv
 import io
 import json
@@ -27,7 +26,6 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import analysis
-import cells
 import measure
 import render
 import runlog
@@ -270,30 +268,6 @@ async def _save(files: List[UploadFile]) -> List[str]:
             out.write(await f.read())
         paths.append(dest)
     return paths
-
-
-@app.post("/api/save_file")
-async def save_file(out_dir: str = Form(...), filename: str = Form(...),
-                    content: str = Form(...), encoding: str = Form("text")):
-    """Save one result artifact (CSV text or a base64 image) into a folder on this
-    machine that the user chose. The app runs locally, so it writes to the user's own
-    filesystem. Offered alongside the browser Download buttons, not instead of them."""
-    folder = os.path.expanduser((out_dir or "").strip())
-    if not folder:
-        return JSONResponse({"error": "No output folder set."}, status_code=400)
-    try:
-        os.makedirs(folder, exist_ok=True)
-        path = os.path.join(folder, os.path.basename(filename))   # basename: no path traversal
-        if encoding == "base64":
-            payload = content.split(",", 1)[1] if content.startswith("data:") else content
-            with open(path, "wb") as fh:
-                fh.write(base64.b64decode(payload))
-        else:
-            with open(path, "w") as fh:
-                fh.write(content)
-        return JSONResponse({"saved": path})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
 
 
 @app.post("/api/single/inspect")
