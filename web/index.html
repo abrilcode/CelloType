@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/app.css?v=6">
+<link rel="stylesheet" href="/static/app.css?v=7">
 </head>
 <body>
 
@@ -294,17 +294,17 @@ const pad2 = n => String(n).padStart(2, "0");
 const Flow = (() => {
   const DEFS = {
     single: [
-      { id: "image",   label: "Raw data" },
-      { id: "segment", label: "Segment" },
-      { id: "measure", label: "Measure" },
-      { id: "plot",    label: "Plot" },
+      { id: "image",   label: "Raw data", hint: "Upload one image" },
+      { id: "segment", label: "Segment",  hint: "Channel, model, review" },
+      { id: "measure", label: "Measure",  hint: "Table and export" },
+      { id: "plot",    label: "Plot",     hint: "Distributions per channel" },
     ],
     multiple: [
-      { id: "images",   label: "Raw data" },
-      { id: "channels", label: "Channels" },
-      { id: "segment",  label: "Segment" },
-      { id: "measure",  label: "Measure" },
-      { id: "analyze",  label: "Analysis" },
+      { id: "images",   label: "Raw data", hint: "Files and conditions" },
+      { id: "channels", label: "Channels", hint: "Markers and what to segment" },
+      { id: "segment",  label: "Segment",  hint: "Run and review masks" },
+      { id: "measure",  label: "Measure",  hint: "Measurements and export" },
+      { id: "analyze",  label: "Analysis", hint: "Plots and positivity" },
     ],
   };
   let mode = null, cur = null, open = new Set();
@@ -313,10 +313,12 @@ const Flow = (() => {
     const nav = $("#steps");
     if (!mode) { nav.classList.add("hidden"); nav.innerHTML = ""; return; }
     nav.classList.remove("hidden");
-    nav.innerHTML = DEFS[mode].map((s, i) => {
-      const cls = s.id === cur ? "is-active" : open.has(s.id) ? "is-done" : "is-todo";
-      return `<button class="step ${cls}" data-go="${s.id}"><span class="n">${pad2(i + 1)}</span>${esc(s.label)}</button>`;
-    }).join("");
+    nav.innerHTML = `<div class="steps-title">${mode === "single" ? "Single image" : "Multiple images"}</div>`
+      + DEFS[mode].map((s, i) => {
+        const cls = s.id === cur ? "is-active" : open.has(s.id) ? "is-done" : "is-todo";
+        return `<button class="step ${cls}" data-go="${s.id}"><span class="n">${pad2(i + 1)}</span>`
+          + `<span class="sl">${esc(s.label)}<span class="sh">${esc(s.hint || "")}</span></span></button>`;
+      }).join("");
     nav.querySelectorAll(".step").forEach(b => b.onclick = () => go(b.dataset.go));
   }
   function paint() {
@@ -1343,10 +1345,9 @@ function renderChannels() {
       <div class="choices">
         <label><input type="radio" name="segengine" value="cellpose" ${SEG_ENGINE !== "stardist" ? "checked" : ""}> Cellpose-SAM</label>
         <label class="sd-opt"><input type="radio" name="segengine" value="stardist" ${SEG_ENGINE === "stardist" ? "checked" : ""}> StarDist</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">StarDist (2D_versatile_fluo) is trained on fluorescent nuclei, so it is offered for nuclei only. It runs at full resolution with the settings of the reference workflow in the agreement study (normalisation to the 1st to 99.8th percentiles, probability 0.5, overlap 0.4). Cellpose-SAM is the default and the model validated against it.</span></span>
-      </div></div></div>`;
-
-  h += `<div class="block edge-opt">
-    <label><input type="checkbox" id="edge-batch" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span></div>`;
+      </div></div>
+    <div class="edge-opt">
+    <label><input type="checkbox" id="edge-batch" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span></div></div>`;
 
   h += `<div class="rowend"><button class="back">Back</button>
         <button id="segall" class="primary">Segment all images</button></div>`;
@@ -1387,10 +1388,11 @@ function renderSegmentPanel() {
   const p = $("#segment-panel");
   p.innerHTML = `<div class="work-grid"><div class="work-left">
     <div class="panel-head"><h2>Segment</h2></div>
+    <div class="block seg-status">
     <p class="note">Segmenting with <b>${SEG_ENGINE === "stardist" ? "StarDist" : "Cellpose-SAM"}</b>${SEG_ENGINE === "stardist" ? " (2D_versatile_fluo)" : (DEVICE_LABEL ? ", on " + DEVICE_LABEL : "")}.</p>
     <div class="loading" id="segbar-wrap"><span class="prog run" id="segbar"><i></i></span>
       <span id="segprogress" class="meta"></span></div>
-    <div class="edge-opt"><label><input type="checkbox" id="edge-batch-after" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the border</label>${infoTip("Changing this redraws every image; no new segmentation is run.")}</div>
+    <div class="edge-opt"><label><input type="checkbox" id="edge-batch-after" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the border</label>${infoTip("Changing this redraws every image; no new segmentation is run.")}</div></div>
     <div id="segresults"></div>
     <div class="rowend">
       <button class="back">Back</button>
