@@ -515,3 +515,6 @@ label.inline { display: inline-flex; align-items: center; gap: 7px; font-size: 1
 /* edge-object option (exclude objects touching the image border) */
 .edge-opt { margin: 10px 0 6px; }
 .edge-opt .note { margin-top: 4px; }
+.px-opt { margin-top: 12px; }
+.px-opt input { width: 7em; }
+.px-opt input:disabled { opacity: .6; }

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"   # 1.1: pixel size filled (P-03a/b), measurement.manual_pixel_size_um
 APP_NAME = "CelloType"
 APP_VERSION = "2026.10-post-review"
 NOT_REPRODUCIBLE_NOTE = "Masks were edited manually; this run cannot be reproduced from these parameters alone."
@@ -92,7 +92,8 @@ def edit_stats(auto_masks, final_masks) -> dict:
     return {"n_added": len(b_ids - used_b), "n_removed": len(a_ids - used_a), "n_modified": modified}
 
 
-def field_record(image: str, session: dict, condition=None, replicate=None, background=None, edge=None) -> dict:
+def field_record(image: str, session: dict, condition=None, replicate=None, background=None, edge=None,
+                 calibration=None) -> dict:
     """Per-image block of the record, from a segmentation session."""
     seg = session.get("seg_info") or {}
     masks = session.get("masks")
@@ -121,14 +122,15 @@ def field_record(image: str, session: dict, condition=None, replicate=None, back
                           "n_at_edge": edge.get("at_edge"), "n_excluded": edge.get("excluded"),
                           "n_measured": edge.get("kept")} if edge else
                          {"excluded": None, "rule": None, "n_at_edge": None, "n_excluded": None, "n_measured": None}),
-        "pixel_size_um": {"x": None, "y": None, "source": None},
+        "pixel_size_um": ({"x": calibration.get("x"), "y": calibration.get("y"), "source": calibration.get("source")}
+                          if calibration else {"x": None, "y": None, "source": None}),
         "background": ({"method": bg.get("method"), "guard_px": bg.get("guard_px"), "n_px": bg.get("n_px"),
                         "fraction": bg.get("fraction"), "per_channel": bg.get("per_channel")} if bg else None),
     }
 
 
 def build_record(workflow: str, fields: list, measurements, columns, subtract_bg: bool, bg_method,
-                 n_rows: int, model_info: dict, output: str) -> dict:
+                 n_rows: int, model_info: dict, output: str, manual_pixel_size_um=None) -> dict:
     """Whole record for one measurement result."""
     edited = any(f["masks"]["edited"] for f in fields)
     return {
@@ -148,6 +150,7 @@ def build_record(workflow: str, fields: list, measurements, columns, subtract_bg
         "measurement": {"measurements": list(measurements) if measurements else None, "columns": list(columns),
                         "background_subtraction": bool(subtract_bg),
                         "background_method": bg_method if subtract_bg else None,
+                        "manual_pixel_size_um": manual_pixel_size_um,
                         "n_objects": int(sum((f["edge_objects"]["n_measured"] or 0) for f in fields)) if fields else 0,
                         "n_rows": int(n_rows)},
         "positivity": None,

@@ -170,8 +170,10 @@ def comparison_figure(rows, value: str = "mean_intensity", log2: bool = False,
     style      -> "violin" or "box".
     """
     df = pd.DataFrame(rows)
+    if not df.empty and value in df:
+        df = df[pd.to_numeric(df[value], errors="coerce").notna()]   # empty values (e.g. µm without a pixel size)
     if df.empty:
-        raise ValueError("No data to plot.")
+        raise ValueError("No data to plot." if value not in pd.DataFrame(rows) else f"No values of {value} to plot.")
     df["condition"] = df["condition"].astype(str)
     df["channel"] = df["channel"].astype(str)
     # photo label = the replicate if the user set one, else the field/image key (always present)

@@ -18,6 +18,7 @@ from loaders import (
     composite_png_b64,
     load_file,
     preview_png_b64,
+    read_pixel_size,
     resolve_color,
 )
 
@@ -62,6 +63,22 @@ def field_channels(paths: List[str]):
     if not multich and singles:
         return [(marker_from_filename(n), img.channels[0]) for n, img in singles]
     raise LoadError("Ambiguous single-image upload for segmentation.")
+
+
+def field_calibration(paths: List[str]) -> dict:
+    """Pixel size of one field from its files' metadata: {"x", "y", "source"} in µm.
+    Separate single-channel files must agree (within 0.1 %); otherwise there is no
+    calibration and "conflict" is True."""
+    cals = [read_pixel_size(p) for p in paths]
+    if not cals:
+        return {"x": None, "y": None, "source": "none"}
+    first = cals[0]
+    for c in cals[1:]:
+        if (c["source"] == "none") != (first["source"] == "none") or (
+                first["x"] is not None and (abs(c["x"] - first["x"]) > 1e-3 * first["x"]
+                                            or abs(c["y"] - first["y"]) > 1e-3 * first["y"])):
+            return {"x": None, "y": None, "source": "none", "conflict": True}
+    return dict(first)
 
 
 def inspect_single(paths: List[str], with_preview: bool = True) -> dict:
@@ -140,6 +157,7 @@ def inspect_single(paths: List[str], with_preview: bool = True) -> dict:
         "formats": sorted(formats),
         "status": status,
         "flags": flags,
+        "pixel_size": field_calibration([p for p in paths if os.path.basename(p) in {n for n, _ in loaded}]),
     }
 
     # Merged "original" view (same colors as ZEN/Fiji). Only when all channels share size.
