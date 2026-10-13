@@ -300,7 +300,8 @@ async def single_inspect(files: List[UploadFile] = File(...)):
     result = inspect_single(paths, with_preview=True)
     if result.get("field"):
         token = uuid.uuid4().hex
-        _SINGLE_SESSIONS[token] = {"paths": paths, "masks": None, "exclude_edge": True}
+        _SINGLE_SESSIONS[token] = {"paths": paths, "masks": None, "exclude_edge": True,
+                                   "sources": result["field"].get("source")}
         result["token"] = token
     return JSONResponse(result)
 
@@ -816,7 +817,8 @@ async def batch_segment_one(token: str = Form(...), key: str = Form(...),
     mapping = _BATCH_SESSIONS.get(token)
     if not mapping or key not in mapping:
         return JSONResponse({"error": "Batch session expired. Upload again."}, status_code=410)
-    channels = field_channels(mapping[key])
+    sources = []
+    channels = field_channels(mapping[key], sources=sources)
     if channel < 0 or channel >= len(channels):
         return JSONResponse({"error": f"Channel {channel + 1} not present in {key}."}, status_code=400)
     arr = channels[channel][1]
@@ -825,7 +827,7 @@ async def batch_segment_one(token: str = Form(...), key: str = Form(...),
     masks, flows = segment.segment_channel(arr, diameter=diam, return_flows=True, info=info)
     # each segmented field gets its own single-session so the editor/measurement/viewer reuse works per image
     field_token = uuid.uuid4().hex
-    session = {"paths": mapping[key], "masks": masks, "flows": flows,
+    session = {"paths": mapping[key], "masks": masks, "flows": flows, "sources": sources,
                "seg_channel": channel, "seg_type": type, "exclude_edge": _flag(exclude_edge)}
     _remember_segmentation(session, masks, info, channels[channel][0])
     _SINGLE_SESSIONS[field_token] = session

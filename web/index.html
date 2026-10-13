@@ -1045,7 +1045,8 @@ function renderInspector(f) {
   });
   $("#insp-views").innerHTML = v;
   $("#insp-meta").innerHTML = `${f.n_channels} channels &middot; ${esc(f.formats.join(", "))}`
-    + (f.quantitative ? "" : "<br>display image, not quantitative");
+    + (f.quantitative ? "" : "<br>display image, not quantitative")
+    + (f.flags || []).filter(x => !/not quantitative/.test(x)).map(x => `<div class="flag">${esc(x)}</div>`).join("");
   document.querySelectorAll("#insp-views .viewbtn").forEach(b => b.onclick = () => setInspView(b.dataset.view));
   setInspView(f.composite ? "original" : `ch-${f.channels[0].id}`);
 }

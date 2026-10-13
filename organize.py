@@ -108,7 +108,7 @@ def organize(paths: List[str], with_preview: bool = True, thumbnails: bool = Fal
             multichannel_fields.append(_make_field(
                 key=parsed["field_key"], mode="multichannel", files=[name], parsed=parsed,
                 channels=channels, quantitative=img.quantitative, warnings=list(img.warnings),
-                arrays=arrays, colors=colors, thumbnails=thumbnails,
+                arrays=arrays, colors=colors, thumbnails=thumbnails, attention=img.needs_attention,
             ))
         else:
             singles.setdefault(parsed["field_key"], []).append((name, parsed, img))
@@ -116,7 +116,7 @@ def organize(paths: List[str], with_preview: bool = True, thumbnails: bool = Fal
     single_fields: List[dict] = []
     for key, members in singles.items():
         members.sort(key=lambda t: t[0].lower())
-        channels, arrays, colors, quant, warns = [], [], [], True, []
+        channels, arrays, colors, quant, warns, attn = [], [], [], True, [], False
         for idx, (name, parsed, img) in enumerate(members):
             arr = img.channels[0]
             ch_name = parsed["marker"] or img.names[0]
@@ -126,11 +126,12 @@ def organize(paths: List[str], with_preview: bool = True, thumbnails: bool = Fal
             colors.append(resolve_color(img.colors[0] if img.colors else None, ch_name, idx))
             quant = quant and img.quantitative
             warns += img.warnings
+            attn = attn or img.needs_attention
         any_parsed = next((p for _, p, _ in members if p["matched"]), members[0][1])
         single_fields.append(_make_field(
             key=key, mode="single-channel", files=[n for n, _, _ in members], parsed=any_parsed,
             channels=channels, quantitative=quant, warnings=list(dict.fromkeys(warns)),
-            arrays=arrays, colors=colors, thumbnails=thumbnails,
+            arrays=arrays, colors=colors, thumbnails=thumbnails, attention=attn,
         ))
 
     fields = multichannel_fields + single_fields
@@ -165,9 +166,10 @@ def _summarize(fields: List[dict]) -> List[dict]:
 
 
 def _make_field(key, mode, files, parsed, channels, quantitative, warnings,
-                arrays=None, colors=None, thumbnails=False) -> dict:
+                arrays=None, colors=None, thumbnails=False, attention=False) -> dict:
     flags = list(warnings)
-    status = "ok"
+    # several planes (only one is used) or unlabelled TIFF planes: shown, never blocking
+    status = "needs_attention" if attention else "ok"
 
     dims = {(c["width"], c["height"]) for c in channels}
     if len(dims) > 1:

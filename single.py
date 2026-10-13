@@ -48,12 +48,20 @@ def _channel(cid: int, name: str, arr, quantitative: bool, source: str,
     return d
 
 
-def field_channels(paths: List[str]):
+def plane_sources(loaded) -> List[dict]:
+    """Per file: the extra axes found and the plane used (for the run-parameters record)."""
+    return [{"file": n, "axes_found": dict(i.dims), "plane_used": dict(i.plane)} for n, i in loaded]
+
+
+def field_channels(paths: List[str], sources: list = None):
     """
     Return [(name, 2D array)] for the field, in the SAME order/ids as inspect_single,
     so a channel id chosen in the UI maps to the right pixel data for segmentation.
+    If sources is a list, it is extended with plane_sources() of the files.
     """
     loaded = [(os.path.basename(p), load_file(p)) for p in paths]
+    if sources is not None:
+        sources.extend(plane_sources(loaded))
     multich = [(n, i) for n, i in loaded if i.n_channels > 1]
     singles = [(n, i) for n, i in loaded if i.n_channels == 1]
 
@@ -111,6 +119,7 @@ def inspect_single(paths: List[str], with_preview: bool = True) -> dict:
         name, img = multich[0]
         quant = img.quantitative
         formats.add(img.fmt)
+        flags += img.warnings
         for i in range(img.n_channels):
             col = resolve_color(img.colors[i] if i < len(img.colors) else None, img.names[i], i)
             channels.append(_channel(i, img.names[i], img.channels[i],
@@ -131,6 +140,7 @@ def inspect_single(paths: List[str], with_preview: bool = True) -> dict:
             colors.append(col)
             quant = quant and img.quantitative
             formats.add(img.fmt)
+            flags += img.warnings
         if len(dims) > 1:
             flags.append("The channel files have different dimensions, so they cannot be one image.")
             status = "needs_attention"
@@ -149,6 +159,8 @@ def inspect_single(paths: List[str], with_preview: bool = True) -> dict:
 
     if not quant:
         flags.append("Display image (8-bit/lossy): intensities are not quantitative.")
+    if any(i.needs_attention for _, i in loaded):
+        status = "needs_attention"
 
     field = {
         "channels": channels,
@@ -156,7 +168,8 @@ def inspect_single(paths: List[str], with_preview: bool = True) -> dict:
         "quantitative": quant,
         "formats": sorted(formats),
         "status": status,
-        "flags": flags,
+        "flags": list(dict.fromkeys(flags)),
+        "source": plane_sources(loaded),
         "pixel_size": field_calibration([p for p in paths if os.path.basename(p) in {n for n, _ in loaded}]),
     }
 
