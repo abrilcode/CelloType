@@ -490,13 +490,28 @@ label.inline { display: inline-flex; align-items: center; gap: 7px; font-size: 1
 .work-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 30px; align-items: start; }
 @media (max-width: 1000px) { .work-grid { grid-template-columns: 1fr; } }
 .work-left { min-width: 0; }
-.work-right { min-width: 0; position: sticky; top: calc(var(--head) + var(--stepbar) + 12px); }
-.viewer-inline { border: 1px solid var(--rule); border-radius: var(--r); overflow: hidden; background: var(--bg-raised); }
+/* The explorer starts at the top of the step (next to the heading) and stays in place while the left
+   column scrolls: sticky offset = the top padding of main, so it never moves. Its height fits the window
+   (minus main's bottom padding), so a short page does not scroll and the image box never changes size. */
+.work-right { min-width: 0; position: sticky; top: calc(var(--head) + var(--stepbar) + 34px); }
+.viewer-inline { border: 1px solid var(--rule); border-radius: var(--r); overflow: hidden; background: var(--bg-raised);
+  display: flex; flex-direction: column; height: max(400px, calc(100vh - var(--head) - var(--stepbar) - 34px - 118px)); }
 .vi-head { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-bottom: 1px solid var(--rule); }
 .vi-head strong { font-family: var(--mono); font-weight: 500; font-size: 12px; }
 .vi-views { padding: 8px 11px; border-bottom: 1px solid var(--rule); }
-.vi-img { background: var(--stage); display: flex; align-items: center; justify-content: center; min-height: 360px; padding: 12px; cursor: zoom-in; }
-.vi-img img { max-width: 100%; max-height: 60vh; object-fit: contain; display: block; }
+.vi-views { display: flex; align-items: center; gap: 6px; }
+.vi-img { background: var(--stage); display: flex; align-items: center; justify-content: center; flex: 1 1 auto; min-height: 0;
+  padding: 12px; cursor: zoom-in; position: relative; }
+.vi-img img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.vi-img.empty { cursor: default; }
+.vi-img.empty img { display: none; }
+.vi-empty { display: none; font-family: var(--mono); font-size: 11px; color: #8A8A92; }
+.vi-img.empty .vi-empty { display: block; }
+@media (max-width: 1000px) {
+  .work-right { position: static; }
+  .viewer-inline { height: auto; }
+  .vi-img { height: 60vh; flex: none; }
+}
 .ellip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .segrow { cursor: pointer; }
 .segrow.sel td { background: var(--hover); }
@@ -515,6 +530,27 @@ label.inline { display: inline-flex; align-items: center; gap: 7px; font-size: 1
 /* edge-object option (exclude objects touching the image border) */
 .edge-opt { margin: 10px 0 6px; }
 .edge-opt .note { margin-top: 4px; }
-.px-opt { margin-top: 12px; }
+/* an option and its info icon on one row: the label wraps, the icon stays at its right */
+.edge-opt, .optline, .px-opt { display: flex; align-items: flex-start; }
+.edge-opt .info, .optline .info, .px-opt .info { flex: none; margin-top: 2px; }
+.px-opt { margin-top: 12px; align-items: center; }
+.px-opt .info { margin-top: 0; }
 .px-opt input { width: 7em; }
 .px-opt input:disabled { opacity: .6; }
+
+/* info icon: the explanation of an option opens on hover, keyboard focus or tap, instead of a paragraph */
+.info { position: relative; display: inline-flex; align-items: center; vertical-align: middle; margin-left: 6px;
+  cursor: help; outline: none; }
+.info-i { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px;
+  border: 1px solid var(--text-3); border-radius: 50%; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  line-height: 1; color: var(--text-3); text-transform: none; }
+.info:hover .info-i, .info:focus .info-i, .info:focus-within .info-i { color: var(--text); border-color: var(--text); }
+.info-tip { display: none; position: absolute; top: calc(100% + 7px); left: -8px; z-index: 30; width: max-content;
+  max-width: 340px; padding: 9px 11px; background: var(--bg-raised); border: 1px solid var(--rule);
+  border-radius: var(--r); font-family: var(--font); font-size: 12px; font-weight: 400; line-height: 1.5;
+  letter-spacing: normal; text-transform: none; color: var(--text-2); white-space: normal; text-align: left; }
+.info.right .info-tip, .info.flip .info-tip { left: auto; right: -8px; }
+.info.up .info-tip { top: auto; bottom: calc(100% + 7px); }
+.info:hover .info-tip, .info:focus .info-tip, .info:focus-within .info-tip { display: block; }
+.info-tip p { margin: 0 0 6px; } .info-tip p:last-child { margin-bottom: 0; }
+h3 .info, .panel-head .info { margin-left: 8px; }
