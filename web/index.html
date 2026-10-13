@@ -86,6 +86,16 @@
           <h3>Segment</h3>
           <div id="segpick"></div>
           <div id="seg-note" class="note"></div>
+          <div class="field engine-opt"><span>Objects</span>
+            <div class="choices">
+              <label><input type="radio" name="segobj-single" value="nuclei" checked> Nuclei</label>
+              <label><input type="radio" name="segobj-single" value="cells"> Cells or other objects</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Any channel can be segmented: a nuclear stain such as DAPI, or a marker that outlines cells or other structures. Cellpose-SAM segments all of them. StarDist is trained on fluorescent nuclei, so it is offered only when the objects are nuclei.</span></span>
+            </div></div>
+          <div class="field engine-opt"><span>Segmentation model</span>
+            <div class="choices">
+              <label><input type="radio" name="segengine-single" value="cellpose" checked> Cellpose-SAM</label>
+              <label class="sd-opt"><input type="radio" name="segengine-single" value="stardist"> StarDist</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">StarDist (2D_versatile_fluo) is trained on fluorescent nuclei, so it is offered for nuclei only. It runs at full resolution with the settings of the reference workflow in the agreement study (normalisation to the 1st to 99.8th percentiles, probability 0.5, overlap 0.4). Cellpose-SAM is the default and the model validated against it.</span></span>
+            </div></div>
           <div class="edge-opt">
             <label><input type="checkbox" id="edge-single" checked> Exclude objects touching the image border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span>
           </div>
@@ -756,7 +766,7 @@ function buildControls(f, rejected, skipped) {
   $("#viewlist").innerHTML = v;
 
   // Segment picker + editable markers
-  let s = `<p class="note">Which channel holds the nuclei?${infoTip("Pick it below. Each channel can be renamed (the marker or antibody, the fluorophore, or the colour); these labels are used in the tables and plots.")}</p>`;
+  let s = `<p class="note">Channel to segment${infoTip("Any channel: a nuclear stain or another marker. Each channel can be renamed (the marker or antibody, the fluorophore, or the colour); these labels are used in the tables and plots.")}</p>`;
   f.channels.forEach((c, i) => {
     s += `<div class="chrow">
       <label><input type="radio" name="segch" value="${c.id}" data-i="${i}"><span class="meta">C${i + 1}</span></label>
@@ -850,6 +860,11 @@ function buildControls(f, rejected, skipped) {
     $("#msgs").innerHTML = `<div class="result-box">${r.count} objects. ${edgeLine(r.edge)}</div>`;
   };
 
+  // Objects decide whether StarDist can be chosen
+  document.querySelectorAll('input[name="segobj-single"]').forEach(r =>
+    r.onchange = () => syncEngine("segengine-single", singleObjects() === "nuclei"));
+  syncEngine("segengine-single", singleObjects() === "nuclei");
+
   // Segment selection enables the primary action
   const cont = $("#continue");
   cont.disabled = true;
@@ -859,13 +874,16 @@ function buildControls(f, rejected, skipped) {
     if (!sel || !SINGLE_TOKEN) return;
     cont.disabled = true;
     const t0 = performance.now();
-    const tick = () => { $("#msgs").innerHTML = loadingHTML(`Segmenting with Cellpose, ${fmtSecs((performance.now() - t0) / 1000)}`); };
+    const objType = singleObjects();
+    const engine = syncEngine("segengine-single", objType === "nuclei");
+    const tick = () => { $("#msgs").innerHTML = loadingHTML(`Segmenting with ${ENGINE_LABEL[engine]}, ${fmtSecs((performance.now() - t0) / 1000)}`); };
     const timer = setInterval(tick, 500); tick();
     const fd = new FormData();
     fd.append("token", SINGLE_TOKEN);
     fd.append("channel", sel.value);
-    fd.append("type", "nuclei");
+    fd.append("type", objType);
     fd.append("diameter", "");
+    fd.append("engine", engine);
     fd.append("exclude_edge", $("#edge-single").checked ? "true" : "false");
     try {
       const r = await (await fetch("/api/single/segment", { method: "POST", body: fd })).json();
@@ -879,7 +897,7 @@ function buildControls(f, rejected, skipped) {
       $("#measure-btn").classList.remove("hidden");
       $("#bg-sub-single-wrap").classList.remove("hidden");
       const chName = $(`#mk-${sel.value}`) ? $(`#mk-${sel.value}`).value : `Channel ${Number(sel.dataset.i) + 1}`;
-      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)} with Cellpose-SAM, ${esc(r.device || "")}, ${secs}. ${edgeLine(r.edge)}</div>`
+      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)} with ${esc(ENGINE_LABEL[r.engine] || "Cellpose-SAM")}, ${esc(r.device || "")}, ${secs}. ${edgeLine(r.edge)}</div>`
         + (r.downscale && r.downscale.note ? `<div class="flag">${esc(r.downscale.note)}</div>` : "");
       singleCtx(r.count, chName);
     } catch (e) {
@@ -938,7 +956,25 @@ function setView(view) {
 let BFIELDS = [];
 let BTOKEN = null;
 let CHANNEL_LABELS = null;   // batch-wide channel labels (when channels are consistent)
-let SEG_MODE = "nuclei";     // "nuclei" | "cells" (whole cells anchored to nuclei)
+let SEG_MODE = "nuclei";     // "nuclei" | "cells" (cells or any other object, on any channel)
+let SEG_ENGINE = "cellpose";  // batch: "cellpose" | "stardist" (StarDist: nuclei only)
+let STARDIST_OK = false;      // the optional StarDist engine is installed (from /api/device)
+const ENGINE_LABEL = { cellpose: "Cellpose-SAM", stardist: "StarDist" };
+// StarDist can be chosen only when installed, and only for nuclei
+function syncEngine(name, nucleiOnly) {
+  const sd = document.querySelector(`input[name="${name}"][value="stardist"]`);
+  const cp = document.querySelector(`input[name="${name}"][value="cellpose"]`);
+  if (!sd || !cp) return "cellpose";
+  sd.disabled = !STARDIST_OK || !nucleiOnly;
+  const lab = sd.closest("label");
+  if (lab) lab.title = !STARDIST_OK ? "StarDist is not installed (pip install stardist tensorflow)" : (!nucleiOnly ? "StarDist segments nuclei only" : "");
+  if (sd.disabled && sd.checked) cp.checked = true;
+  return (document.querySelector(`input[name="${name}"]:checked`) || cp).value;
+}
+// single flow: what the segmented channel shows ("nuclei" | "cells"); StarDist follows it
+function singleObjects() {
+  return (document.querySelector('input[name="segobj-single"]:checked') || {}).value || "nuclei";
+}
 let SEG_CHANNEL = null;      // channel index segmented in every image
 let CELL_CHANNEL = null;     // cytoplasm/membrane channel index (only used in "cells" mode)
 let MEAS_OPTIONS = null;     // the Set Measurements list (fetched from the backend)
@@ -946,7 +982,7 @@ let MEAS_SEL = null;         // measurement keys the user chose (read at Measure
 let RESULT_TOKEN = null;     // server-side handle for the measured rows (plots reuse them)
 
 function mToUploader() {
-  BFIELDS = []; CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_CHANNEL = null; CELL_CHANNEL = null; BSEG = [];
+  BFIELDS = []; CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_ENGINE = "cellpose"; SEG_CHANNEL = null; CELL_CHANNEL = null; BSEG = [];
   RESULT_TOKEN = null;
   $("#mworkspace").classList.add("hidden");
   $("#muploader").classList.remove("hidden");
@@ -1142,7 +1178,7 @@ $("#mgo").addEventListener("click", async () => {
 function renderBatch(data, skipped) {
   BFIELDS = data.fields || [];
   BTOKEN = data.token || null;
-  CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_CHANNEL = null; CELL_CHANNEL = null;
+  CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_ENGINE = "cellpose"; SEG_CHANNEL = null; CELL_CHANNEL = null;
   BSEG = [];                                   // drop any segmentation from a previous dataset
   BFIELDS.forEach(f => f.__token = data.token || null);   // each field remembers its session
   if (!BFIELDS.length) {
@@ -1292,13 +1328,20 @@ function renderChannels() {
   h += `</tbody></table></div>`;
 
   h += `<div class="block"><h3>What to segment</h3>
-    <div class="choices">
-      <label><input type="radio" name="segmode" value="nuclei" ${SEG_MODE !== "cells" ? "checked" : ""}> Nuclei</label>
-      <label><input type="radio" name="segmode" value="cells" ${SEG_MODE === "cells" ? "checked" : ""}> Whole cells</label>
-    </div>
-    <label class="field" style="max-width:280px"><span id="seg-chan-label"></span>
+    <label class="field" style="max-width:280px"><span>Channel to segment</span>
       <select id="segchannel">${chanOpts(SEG_CHANNEL)}</select></label>
-    <div id="chan-msg"></div></div>`;
+    <div id="chan-msg"></div>
+    <div class="field engine-opt"><span>Objects</span>
+      <div class="choices">
+        <label><input type="radio" name="segmode" value="nuclei" ${SEG_MODE !== "cells" ? "checked" : ""}> Nuclei</label>
+        <label><input type="radio" name="segmode" value="cells" ${SEG_MODE === "cells" ? "checked" : ""}> Cells or other objects</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Any channel can be segmented: a nuclear stain such as DAPI, or a marker that outlines cells or other structures. Cellpose-SAM segments all of them. StarDist is trained on fluorescent nuclei, so it is offered only when the objects are nuclei.</span></span>
+      </div></div>
+    <div class="field engine-opt"><span>Segmentation model</span>
+      <div class="choices">
+        <label><input type="radio" name="segengine" value="cellpose" ${SEG_ENGINE !== "stardist" ? "checked" : ""}> Cellpose-SAM</label>
+        <label class="sd-opt"><input type="radio" name="segengine" value="stardist" ${SEG_ENGINE === "stardist" ? "checked" : ""}> StarDist</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">StarDist (2D_versatile_fluo) is trained on fluorescent nuclei, so it is offered for nuclei only. It runs at full resolution with the settings of the reference workflow in the agreement study (normalisation to the 1st to 99.8th percentiles, probability 0.5, overlap 0.4). Cellpose-SAM is the default and the model validated against it.</span></span>
+      </div></div>
+</div>`;
 
   h += `<div class="block edge-opt">
     <label><input type="checkbox" id="edge-batch" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span></div>`;
@@ -1319,10 +1362,11 @@ function renderChannels() {
   if (segSel) segSel.onchange = () => { SEG_CHANNEL = segSel.value === "" ? null : +segSel.value; $("#chan-msg").innerHTML = ""; };
   const syncMode = () => {
     SEG_MODE = (document.querySelector('input[name="segmode"]:checked') || {}).value || "nuclei";
-    $("#seg-chan-label").textContent = SEG_MODE === "cells" ? "Cell or membrane channel" : "Nuclei channel";
+    SEG_ENGINE = syncEngine("segengine", SEG_MODE !== "cells");
     updateSegBtn();
   };
   document.querySelectorAll('input[name="segmode"]').forEach(el => el.onchange = syncMode);
+  document.querySelectorAll('input[name="segengine"]').forEach(el => el.onchange = () => { SEG_ENGINE = syncEngine("segengine", SEG_MODE !== "cells"); });
   syncMode();
   $("#cx-prev").onclick = () => cxOpen(CX_IDX - 1);
   $("#cx-next").onclick = () => cxOpen(CX_IDX + 1);
@@ -1341,7 +1385,7 @@ function renderSegmentPanel() {
   const p = $("#segment-panel");
   p.innerHTML = `<div class="work-grid"><div class="work-left">
     <div class="panel-head"><h2>Segment</h2></div>
-    <p class="note">Segmenting with <b>Cellpose-SAM</b>${DEVICE_LABEL ? ", on " + DEVICE_LABEL : ""}.</p>
+    <p class="note">Segmenting with <b>${SEG_ENGINE === "stardist" ? "StarDist" : "Cellpose-SAM"}</b>${SEG_ENGINE === "stardist" ? " (2D_versatile_fluo)" : (DEVICE_LABEL ? ", on " + DEVICE_LABEL : "")}.</p>
     <div class="loading" id="segbar-wrap"><span class="prog run" id="segbar"><i></i></span>
       <span id="segprogress" class="meta"></span></div>
     <div class="edge-opt"><label><input type="checkbox" id="edge-batch-after" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label>${infoTip("Changing this redraws every image; no new segmentation is run.")}</div>
@@ -1390,7 +1434,7 @@ function segBar(done, total, running) {
 
 async function segmentAllBatch() {
   if (SEG_CHANNEL == null) {
-    $("#chan-msg").innerHTML = `<p class="flag">Choose the ${SEG_MODE === "cells" ? "cell or membrane" : "nuclei"} channel first.</p>`;
+    $("#chan-msg").innerHTML = `<p class="flag">Choose the channel to segment first.</p>`;
     return;
   }
   const segType = SEG_MODE === "cells" ? "cells" : "nuclei";
@@ -1422,6 +1466,7 @@ async function segmentAllBatch() {
       const fd = new FormData();
       fd.append("token", f.__token); fd.append("key", f.key);
       fd.append("channel", SEG_CHANNEL); fd.append("type", segType); fd.append("diameter", "");
+      fd.append("engine", SEG_ENGINE);
       fd.append("exclude_edge", EDGE_EXCLUDE ? "true" : "false");
       const r = await (await fetch("/api/batch/segment_one", { method: "POST", body: fd })).json();
       if (r.error) { clearInterval(timer); segBar(done, N, false); $("#segprogress").innerHTML = `<span class="flag">${esc(f.key)}: ${esc(r.error)}</span>`; btn.disabled = false; return; }
@@ -1803,6 +1848,9 @@ fetch("/api/device").then(r => r.json()).then(d => {
   DEVICE_LABEL = chip.textContent;
   chip.classList.toggle("cpu", !d.gpu);
   chip.title = d.gpu ? "Cellpose runs on the GPU" : "No GPU found. Cellpose on CPU is slow.";
+  STARDIST_OK = !!d.stardist;
+  syncEngine("segengine-single", singleObjects() === "nuclei");
+  if (document.querySelector('input[name="segengine"]')) SEG_ENGINE = syncEngine("segengine", SEG_MODE !== "cells");
 }).catch(() => {});
 
 // ---- Display viewer: per-channel colour, brightness/contrast, segmentation overlay ----

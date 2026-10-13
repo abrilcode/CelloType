@@ -28,6 +28,11 @@ Pillow>=10.3
 cellpose>=4.0
 torch>=2.1
 
+# Optional, not installed by default (TensorFlow is large): StarDist for nuclei, the
+# 2D_versatile_fluo model of the reference workflow. Without it only Cellpose-SAM is offered.
+# Tested with stardist 0.9.2, tensorflow 2.21.0, csbdeep 0.8.2:
+#   pip install stardist tensorflow
+
 # Measurement, plots, export
 pandas>=2.2
 matplotlib>=3.8
