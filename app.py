@@ -834,6 +834,9 @@ async def batch_segment_one(token: str = Form(...), key: str = Form(...),
     return JSONResponse({"key": key, "count": segment.count_objects(masks),
                          "overlay": _overlay(session, arr, masks),
                          "edge": _edge_summary(masks, session["exclude_edge"]),
+                         "downscale": {"factor": info.get("downscale_factor"),
+                                       "processed_size_px": info.get("processed_size_px"),
+                                       "note": segment.downscale_note(info)},
                          "token": field_token})
 
 
@@ -871,6 +874,8 @@ async def single_segment(
         "channel": channel,
         "type": type,
         "device": segment.device_name(),
+        "downscale": {"factor": info.get("downscale_factor"), "processed_size_px": info.get("processed_size_px"),
+                      "note": segment.downscale_note(info)},
     })
 
 

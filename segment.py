@@ -66,25 +66,34 @@ def segment_channel(arr, diameter=None, flow_threshold: float = 0.4,
                     return_flows: bool = False, info: dict = None):
     """
     Run Cellpose-SAM on a single 2D channel. Returns an int label image (0=bg)
-    at the ORIGINAL resolution. For speed on CPU the model runs on a downscaled
-    copy (longest side <= max_side); labels are mapped back with nearest-neighbor.
-    If return_flows=True, also returns the eval flows (at the downscaled size) for
-    writing a Cellpose `_seg.npy`. If info is a dict, it is filled with the settings
-    actually used (sizes, downscale factor, size limit, model, device, thresholds).
-    """
-    from scipy.ndimage import zoom
+    at the ORIGINAL resolution.
 
+    For speed (mainly on CPU) the network runs on a reduced copy whose longest side is at
+    most max_side. The reduction is done by Cellpose itself (reviewer Tomás, obs. 5): the
+    image is rescaled for the network, the flows are resampled to the original size and the
+    masks are computed at full resolution, which keeps contours and shape descriptors close
+    to a full-resolution run. A diameter given by the user is in original pixels. Without
+    reduction the call is the same as always (no rescale).
+    If return_flows=True, also returns the eval flows for writing a Cellpose `_seg.npy`.
+    If info is a dict, it is filled with the settings actually used (sizes, downscale
+    factor, size limit, model, device, thresholds).
+    """
     if max_side is None:
         max_side = default_max_side()
     a = np.asarray(arr)
     h, w = a.shape[:2]
-    scale = min(1.0, max_side / max(h, w))
-
-    small = zoom(a.astype(np.float32), scale, order=1) if scale < 1.0 else a
+    cap = min(1.0, max_side / max(h, w))
     model = get_model()
+    if cap < 1.0:
+        # Cellpose rescales by 30 / diameter; pick the diameter that gives the needed factor
+        # (or the user's diameter, if it already implies a stronger reduction)
+        scale = min(cap, 30.0 / diameter) if diameter else cap
+        eval_diameter = 30.0 / scale
+    else:
+        scale, eval_diameter = 1.0, diameter
     masks, flows, _styles = model.eval(
-        small,
-        diameter=diameter,
+        a,
+        diameter=eval_diameter,
         flow_threshold=flow_threshold,
         cellprob_threshold=cellprob_threshold,
     )
@@ -92,20 +101,25 @@ def segment_channel(arr, diameter=None, flow_threshold: float = 0.4,
     if info is not None:
         import os
         info.update(original_size_px=[int(h), int(w)],
-                    processed_size_px=[int(small.shape[0]), int(small.shape[1])],
+                    processed_size_px=[max(1, int(round(h * scale))), max(1, int(round(w * scale)))],
                     downscale_factor=round(float(scale), 4), max_side_limit=int(max_side),
+                    downscale_method=("cellpose_rescale" if scale < 1.0 else None),
                     model=os.path.basename(str(getattr(model, "pretrained_model", "cpsam"))),
                     device=_DEVICE or "cpu", flow_threshold=float(flow_threshold),
                     cellprob_threshold=float(cellprob_threshold),
                     diameter=(None if diameter is None else float(diameter)))
-
-    if scale < 1.0:
-        # upscale labels to full resolution with nearest-neighbor (preserves ids)
-        from PIL import Image
-        masks = np.asarray(
-            Image.fromarray(masks.astype(np.int32), mode="I").resize((w, h), Image.NEAREST)
-        ).astype(np.int32)
     return (masks, flows) if return_flows else masks
+
+
+def downscale_note(info: dict):
+    """User-facing note when segmentation ran on a reduced copy, else None."""
+    f = (info or {}).get("downscale_factor") or 1.0
+    if f >= 1.0:
+        return None
+    ph, pw = info["processed_size_px"]
+    why = "no GPU was found" if (info.get("device") or "cpu") == "cpu" else "the image is larger than the size limit"
+    return (f"Segmented on a reduced copy (x{f:.2f}, {pw} x {ph} px) because {why}. Small nuclei may be "
+            "missed and close nuclei may merge; this setting was not part of the validation.")
 
 
 def write_seg_for_gui(image, masks, flows, out_dir: str, base: str):

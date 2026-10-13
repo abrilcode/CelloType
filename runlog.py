@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-SCHEMA_VERSION = "1.2"   # 1.1: pixel size (P-03a/b), measurement.manual_pixel_size_um; 1.2: input planes (P-04a)
+SCHEMA_VERSION = "1.3"   # 1.1: pixel size (P-03a/b), manual_pixel_size_um; 1.2: input planes (P-04a); 1.3: downscale_method (S-05)
 APP_NAME = "CelloType"
 APP_VERSION = "2026.10-post-review"
 NOT_REPRODUCIBLE_NOTE = "Masks were edited manually; this run cannot be reproduced from these parameters alone."
@@ -111,6 +111,7 @@ def field_record(image: str, session: dict, condition=None, replicate=None, back
         "condition": condition, "replicate": replicate,
         "original_size_px": seg.get("original_size_px"), "processed_size_px": seg.get("processed_size_px"),
         "downscale_factor": seg.get("downscale_factor"),
+        "downscale_method": seg.get("downscale_method"),
         "segmentation_channel_index": session.get("seg_channel"),
         "segmentation_channel_name": seg.get("channel_name"),
         "object_type": session.get("seg_type"),

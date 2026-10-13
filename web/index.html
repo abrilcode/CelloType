@@ -867,7 +867,8 @@ function buildControls(f, rejected, skipped) {
       $("#measure-btn").classList.remove("hidden");
       $("#bg-sub-single-wrap").classList.remove("hidden");
       const chName = $(`#mk-${sel.value}`) ? $(`#mk-${sel.value}`).value : `Channel ${Number(sel.dataset.i) + 1}`;
-      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)} with Cellpose-SAM, ${esc(r.device || "")}, ${secs}. ${edgeLine(r.edge)}</div>`;
+      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)} with Cellpose-SAM, ${esc(r.device || "")}, ${secs}. ${edgeLine(r.edge)}</div>`
+        + (r.downscale && r.downscale.note ? `<div class="flag">${esc(r.downscale.note)}</div>` : "");
       singleCtx(r.count, chName);
     } catch (e) {
       clearInterval(timer);
@@ -1397,7 +1398,8 @@ async function segmentAllBatch() {
       const r = await (await fetch("/api/batch/segment_one", { method: "POST", body: fd })).json();
       if (r.error) { clearInterval(timer); segBar(done, N, false); $("#segprogress").innerHTML = `<span class="flag">${esc(f.key)}: ${esc(r.error)}</span>`; btn.disabled = false; return; }
       BSEG.push({ key: f.key, token: r.token, count: r.count, overlay: r.overlay, edge: r.edge,
-                  condition: f.condition, replicate: f.replicate, control: f.control });
+                  condition: f.condition, replicate: f.replicate, control: f.control,
+                  downscale: r.downscale && r.downscale.note ? r.downscale : null });
       done++; current = ""; renderSegResults(); tick();
     } catch (e) {
       clearInterval(timer);
@@ -1408,7 +1410,9 @@ async function segmentAllBatch() {
   }
   clearInterval(timer);
   const total = BSEG.reduce((a, s) => a + s.count, 0);
-  $("#segprogress").innerHTML = `${BSEG.length}/${N} images &middot; ${total} objects &middot; ${fmtSecs((performance.now() - t0) / 1000)}`;
+  const reduced = BSEG.filter(s => s.downscale);
+  $("#segprogress").innerHTML = `${BSEG.length}/${N} images &middot; ${total} objects &middot; ${fmtSecs((performance.now() - t0) / 1000)}`
+    + (reduced.length ? `<div class="flag">${reduced.length} of ${BSEG.length} images: ${esc(reduced[0].downscale.note)}</div>` : "");
   segBar(N, N, false);
   btn.disabled = false;
   const cont = $("#to-measure"); if (cont) cont.classList.remove("hidden");
