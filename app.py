@@ -72,7 +72,9 @@ def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="obj
         for r in rows:
             r["image"] = it.get("image", "")
             r["condition"] = it.get("condition") or ""
-            r["replicate"] = "" if it.get("replicate") is None else it.get("replicate")
+            # the Foto number: a technical replicate (another field of the sample), never a
+            # biological replicate (reviewer Pérez, obs. 6); exported as technical_replicate
+            r["technical_replicate"] = "" if it.get("replicate") is None else it.get("replicate")
         allrows += rows
     return allrows
 
@@ -375,7 +377,7 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
     for r in rows:
         r["image"] = image
         r["condition"] = image     # one "condition" so the per-channel plot can group
-        r["replicate"] = 1
+        r["technical_replicate"] = 1
     cols = ["image", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     fields = [runlog.field_record(image, session, background=(bg_infos[0] if bg_infos else None),
@@ -422,10 +424,10 @@ async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false")
         return JSONResponse({"error": "No measurements. Segment the images first, then Measure (the session may have expired)."}, status_code=400)
     chans = list(dict.fromkeys(r["channel"] for r in allrows))
     conds = list(dict.fromkeys(r["condition"] for r in allrows))
-    cols = ["image", "condition", "replicate", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
+    cols = ["image", "condition", "technical_replicate", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     fields = [runlog.field_record(it.get("image", ""), ses, condition=(it.get("condition") or None),
-                                  replicate=it.get("replicate"), background=bgi, edge=edi, calibration=cal)
+                                  technical_replicate=it.get("replicate"), background=bgi, edge=edi, calibration=cal)
               for it, ses, bgi, edi, cal in processed]
     record = runlog.build_record("batch", fields, sel or measure.DEFAULT_MEASUREMENTS, cols, bg_on, bg_method,
                                  len(allrows), (processed[0][1].get("seg_info") or {}) if processed else {},
@@ -508,7 +510,7 @@ async def batch_positivity(result_token: str = Form(...), channel: str = Form(..
 
     # per-cell classification CSV for the chosen channel (optional download)
     thr = res["threshold"]
-    cell_cols = ["image", "condition", "replicate", "object_id", "channel", value, "positive"]
+    cell_cols = ["image", "condition", "technical_replicate", "object_id", "channel", value, "positive"]
     cellrows = []
     for r in rows:
         if str(r["channel"]) == str(channel):
@@ -555,12 +557,12 @@ async def batch_positivity_all(result_token: str = Form(...), control: str = For
         ch = str(r["channel"])
         if ch not in thr:
             continue
-        key = (r.get("image", ""), r.get("condition", ""), r.get("replicate", ""), r.get("object_id", ""))
+        key = (r.get("image", ""), r.get("condition", ""), r.get("technical_replicate", ""), r.get("object_id", ""))
         cell = cells.setdefault(key, {"image": key[0], "condition": key[1],
-                                      "replicate": key[2], "object_id": key[3]})
+                                      "technical_replicate": key[2], "object_id": key[3]})
         cell[ch] = r[value]
         cell[ch + "_positive"] = 1 if float(r[value]) > thr[ch] else 0
-    cols = ["image", "condition", "replicate", "object_id"]
+    cols = ["image", "condition", "technical_replicate", "object_id"]
     for ch in chans:
         cols += [ch, ch + "_positive"]
     res["cell_csv"] = _rows_csv(list(cells.values()), cols)

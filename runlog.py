@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-SCHEMA_VERSION = "1.3"   # 1.1: pixel size (P-03a/b), manual_pixel_size_um; 1.2: input planes (P-04a); 1.3: downscale_method (S-05)
+SCHEMA_VERSION = "1.4"   # 1.1: pixel size (P-03a/b), manual_pixel_size_um; 1.2: input planes (P-04a); 1.3: downscale_method (S-05); 1.4: technical_replicate (P-06a)
 APP_NAME = "CelloType"
 APP_VERSION = "2026.10-post-review"
 NOT_REPRODUCIBLE_NOTE = "Masks were edited manually; this run cannot be reproduced from these parameters alone."
@@ -92,7 +92,7 @@ def edit_stats(auto_masks, final_masks) -> dict:
     return {"n_added": len(b_ids - used_b), "n_removed": len(a_ids - used_a), "n_modified": modified}
 
 
-def field_record(image: str, session: dict, condition=None, replicate=None, background=None, edge=None,
+def field_record(image: str, session: dict, condition=None, technical_replicate=None, background=None, edge=None,
                  calibration=None) -> dict:
     """Per-image block of the record, from a segmentation session."""
     seg = session.get("seg_info") or {}
@@ -108,7 +108,7 @@ def field_record(image: str, session: dict, condition=None, replicate=None, back
         "input_files": [os.path.basename(p) for p in paths],
         "input_format": (os.path.splitext(paths[0])[1].lstrip(".").lower() if paths else None),
         "input_planes": session.get("sources"),
-        "condition": condition, "replicate": replicate,
+        "condition": condition, "technical_replicate": technical_replicate,
         "original_size_px": seg.get("original_size_px"), "processed_size_px": seg.get("processed_size_px"),
         "downscale_factor": seg.get("downscale_factor"),
         "downscale_method": seg.get("downscale_method"),
