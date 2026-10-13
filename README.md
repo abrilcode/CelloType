@@ -1,112 +1,203 @@
-# CelloType
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.png">
+    <img src="docs/assets/banner-light.png" width="100%" alt="CelloType. From fluorescence images to per-cell data, in one browser tab. A 16-bit, three-channel CZI field with 178 nuclei segmented by Cellpose-SAM on the DAPI channel.">
+  </picture>
+</p>
 
-Fluorescence microscopy nuclear analysis in your browser, running locally on your
-own machine and GPU. Upload multichannel images (CZI, TIFF, PNG), segment nuclei
-or whole cells with Cellpose-SAM, measure per-nucleus marker intensities
-(ImageJ style), explore the result in an interactive viewer, and make
-publication style plots. No build step: a FastAPI backend plus a plain HTML/JS
-frontend that you run on localhost.
+<p align="center">
+  <img alt="Python 3.10 to 3.12" src="https://img.shields.io/badge/python-3.10%20to%203.12-4c6fa5?style=flat-square">
+  <img alt="Segmentation: Cellpose-SAM and StarDist" src="https://img.shields.io/badge/segmentation-Cellpose--SAM%20%7C%20StarDist-4c6fa5?style=flat-square">
+  <img alt="Runs locally" src="https://img.shields.io/badge/runs-locally-4c6fa5?style=flat-square">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-4c6fa5?style=flat-square"></a>
+</p>
 
-## Features
+<p align="center">
+  <a href="#installation">Installation</a> &nbsp;·&nbsp;
+  <a href="#usage">Usage</a> &nbsp;·&nbsp;
+  <a href="#outputs">Outputs</a> &nbsp;·&nbsp;
+  <a href="#agreement-with-a-reference-workflow">Agreement study</a> &nbsp;·&nbsp;
+  <a href="#documentation">Documentation</a> &nbsp;·&nbsp;
+  <a href="#citation">Citation</a>
+</p>
 
-- Reads CZI, TIFF (single and multichannel) and PNG/JPEG, keeping native bit
-  depth so intensities stay quantitative.
-- Cellpose-SAM segmentation of nuclei or whole cells, using your GPU (NVIDIA
-  CUDA or Apple Silicon MPS) when available, otherwise CPU.
-- ImageJ style "Set Measurements": area, centroid, mean, integrated density,
-  shape descriptors, Feret, and more, per object and per channel.
-- Interactive viewer: per channel colour and brightness/contrast with a
-  histogram and numeric min/max (like ImageJ), plus the segmentation shown as
-  contours, filled masks, or both, over any channel or the merged composite.
-- Batch mode: organize many fields into conditions and replicates, segment in one
-  pass, and pool the measurements.
-- Plots: violin and box distributions, co-expression scatter, and positivity
-  (percent positive), with palette, grouping and log2 options.
-- CSV export of the measurement table, and an optional round trip to the Cellpose
-  GUI for manual mask correction.
+**CelloType** is a local web application for the quantitative analysis of multichannel
+fluorescence microscopy images. It takes a dataset from raw files to per-object measurements in
+one guided workflow: fields are organised into conditions, nuclei or cells are segmented with
+Cellpose-SAM, every mask is reviewed, every channel is measured with the same masks, and
+conditions are compared. It runs on localhost, and images never leave the machine.
 
-## Requirements
+Mechanical steps are automated. Experimental decisions stay with the researcher and are recorded
+next to the results.
 
-- Python 3.10 to 3.12.
-- A GPU is optional but strongly recommended: NVIDIA (CUDA) or Apple Silicon
-  (MPS). On CPU it runs, but Cellpose segmentation is slow.
-- About 1.2 GB of disk for the Cellpose-SAM model, downloaded automatically on
-  first use to `~/.cellpose`.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screen-segment-dark.png">
+  <img src="docs/assets/screen-segment-light.png" width="100%" alt="Segment step of the single-image flow. Channel, object type and segmentation model on the left; segmentation overlay on the right.">
+</picture>
+<p align="center"><sub>Segment step. 178 nuclei on the DAPI channel with Cellpose-SAM in 23 s on an Apple GPU; the 20 that touch the image border are excluded and 158 are measured.</sub></p>
 
-## Install
+## Highlights
+
+- **Quantitative input.** CZI, TIFF (OME or ImageJ) and PNG/JPEG, read at native bit depth, with
+  channel names and pixel size taken from the metadata.
+- **Segmentation of any channel.** Cellpose-SAM for nuclei, cells or other objects, on NVIDIA
+  (CUDA) or Apple Silicon (MPS) GPUs with a CPU fallback. Optional StarDist for nuclei.
+- **Review before measurement.** Every mask can be inspected and edited in the browser. Only the
+  corrected masks are measured.
+- **Per-object quantification.** 18 ImageJ-style measurements on every channel, sizes in µm,
+  optional background subtraction, and objects touching the border excluded by default.
+- **Analysis by condition.** Distributions, co-expression and positivity against a control
+  condition, as descriptive statistics.
+- **Reproducible results.** Every table can be exported with a JSON record of how it was produced
+  and with the final label masks.
+
+## Installation
+
+**Requirements.** Python 3.10 to 3.12. A GPU is optional but strongly recommended (NVIDIA CUDA or
+Apple Silicon MPS). About 1.2 GB of disk for the Cellpose-SAM weights, downloaded to
+`~/.cellpose` on first use.
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/abrilcode/CelloType.git
 cd CelloType
 
 python3 -m venv .venv
-# macOS / Linux:
-source .venv/bin/activate
-# Windows (PowerShell):
-# .venv\Scripts\Activate.ps1
+source .venv/bin/activate          # Windows (PowerShell): .venv\Scripts\Activate.ps1
 
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-GPU note: for an NVIDIA GPU, install the CUDA build of PyTorch that matches your
-driver first (see https://pytorch.org/get-started/locally/), then run the
-`pip install -r requirements.txt` above. On Apple Silicon the default install
-already uses the GPU through MPS.
+On an NVIDIA GPU, install the [CUDA build of PyTorch](https://pytorch.org/get-started/locally/)
+that matches the driver before `requirements.txt`. On Apple Silicon the default install already
+uses the GPU.
 
-## Run
+**Optional: StarDist for nuclei.** `pip install stardist tensorflow` adds StarDist
+(`2D_versatile_fluo`, with the settings of the reference workflow) as a second model when the
+objects are nuclei.
+
+## Usage
 
 ```bash
 uvicorn app:app --host 127.0.0.1 --port 8010
 ```
 
-Then open http://127.0.0.1:8010 in your browser. The first segmentation downloads
-the Cellpose-SAM weights (about 1.2 GB); later runs are fast.
+Open http://127.0.0.1:8010 and choose a flow: **Single image** for one field, or **Multiple
+images** for a dataset organised into experimental conditions.
 
-## Quick start
+| Step | What happens | Decided by the researcher |
+|---|---|---|
+| **1.&nbsp;Raw&nbsp;data** | Files are read and grouped into fields; each field is assigned to a condition. | Files, conditions |
+| **2.&nbsp;Channels** | Marker names, the channel to segment, the object type and the model. | Channel, object type, model |
+| **3.&nbsp;Segment** | Every field is segmented with progress and timing; masks are reviewed and edited. | Border rule, mask edits |
+| **4.&nbsp;Measure** | The same masks are measured on every channel. | Measurements, background, pixel size |
+| **5.&nbsp;Analysis** | Distributions, co-expression and positivity by condition. | Plots, positivity rule, control |
 
-Single image:
+The single-image flow has four steps (Raw data, Segment, Measure, Plot), with the channel, object
+type and model chosen in the Segment step.
 
-1. Upload one multichannel file, or the separate single channel files of one field.
-2. Check the channels, pick the nuclei channel, choose Nuclei or Whole cells, and
-   click Segment.
-3. Explore in the viewer, review the per nucleus table, and export the CSV.
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screen-display.jpg" alt="Display and contrast viewer with per-channel histograms and segmentation contours over the merged channels.">
+      <br><sub><b>Display and contrast.</b> Per-channel colour, histogram and range, as in ImageJ. Display settings never change the measured values.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screen-editor.jpg" alt="Mask editor with every segmented nucleus filled in a different colour and the editing toolbar.">
+      <br><sub><b>Mask editor.</b> Remove spurious objects, draw missing ones and undo. The corrected mask is the one that is measured.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screen-batch-segment-dark.png">
+        <img src="docs/assets/screen-batch-segment-light.png" alt="Batch Segment step with a per-field table of objects and a pinned image viewer.">
+      </picture>
+      <br><sub><b>Batch segmentation.</b> Every field in one pass, with objects detected, at the border and measured per field.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screen-analysis-dark.png">
+        <img src="docs/assets/screen-analysis-light.png" alt="Analysis step with violin plots of mean intensity per condition for two markers.">
+      </picture>
+      <br><sub><b>Analysis.</b> Violin or box plots of any measurement by condition or field, co-expression and positivity.</sub>
+    </td>
+  </tr>
+</table>
 
-Batch:
+## Outputs
 
-1. Upload many files and organize them into conditions and replicates.
-2. Pick the segmentation channel and segment all fields.
-3. Measure, then build violin, scatter or positivity plots and export.
+| File | Contents |
+|---|---|
+| `measurements.csv` | One row per object and channel, with the selected measurements. |
+| `<table>_parameters.json` | Inputs, settings, mask edits and software versions, and whether the result can be reproduced from the parameters alone. |
+| Masks | The final label image as TIFF (single image), or one TIFF per field in a ZIP (batch). |
+| `cells_positive.csv` | Positivity per object and marker (batch). |
+| Plots | PNG figures of each analysis view. |
 
-## Optional: manual mask editing in the Cellpose GUI
+Columns, measurements and the parameter record are described in [docs/OUTPUTS.md](docs/OUTPUTS.md).
+Changes to the output format since the evaluated version are listed in [CHANGELOG.md](CHANGELOG.md).
 
-To correct masks by hand, install the Cellpose GUI extra, then use the export and
-import buttons in the app:
+## Agreement with a reference workflow
 
-```bash
-pip install "cellpose[gui]"
-```
+CelloType's nuclear segmentation and per-nucleus readouts were compared with a published
+StarDist-based workflow, Multi-Channel Nuclear Analysis (Waisman, 2025), on the same images: five
+datasets, 78 fields and 21,385 reference nuclei. Both mask sets were measured with the same code,
+so differences reflect the segmented regions only.
 
-## Validation
+<p align="center">
+  <img src="docs/assets/fig-agreement.png" width="100%" alt="Three panels: segmentation agreement per dataset (Dice, F1 and matched IoU against the 0.85 threshold), nuclei counted by CelloType against the reference, and per-marker intensity correlation.">
+</p>
+<p align="center"><sub>(a) Dice, F1 at IoU ≥ 0.5 and matched IoU per dataset, against the 0.85 threshold. (b) Nuclei detected by CelloType against the reference; the band is ±5 %. (c) Pearson r of per-nucleus mean intensity for each marker, on matched nuclei.</sub></p>
 
-CelloType's nuclear segmentation and per-nucleus readouts were benchmarked against
-an independent, published StarDist-based nuclei-analysis workflow (StarDist model
-`2D_versatile_fluo`, ImageJ/FIJI) on five datasets. Agreement was high:
-foreground Dice about 0.95, instance F1 at IoU >= 0.5 between 0.94 and 0.97, and
-per-nucleus intensity Pearson r about 0.997 to 0.9996. Details, including the
-datasets and timing, are in [docs/VALIDATION.md](docs/VALIDATION.md).
+Every dataset met the thresholds set before the comparison: Dice 0.948 to 0.964, F1 at
+IoU ≥ 0.5 0.942 to 0.965, nucleus-count r 0.991 to 0.9996, and per-nucleus marker intensity r
+0.997 to 0.9996. This is agreement between two automatic methods, not accuracy against manual
+annotation. On these nuclear images Cellpose-SAM was 15 to 37 times slower than StarDist. Method,
+per-dataset results and timing: [docs/VALIDATION.md](docs/VALIDATION.md).
 
-## Data privacy
+## Documentation
 
-This tool runs entirely on your machine and does not upload your images anywhere.
-Do not commit microscopy images or patient derived data to the repository; the
-`.gitignore` already excludes common image formats as a safety net.
+| Document | Contents |
+|---|---|
+| [docs/VALIDATION.md](docs/VALIDATION.md) | Agreement study: method, thresholds, per-dataset results and timing |
+| [docs/OUTPUTS.md](docs/OUTPUTS.md) | Output files, columns, measurements and the parameter record |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules by layer and how the application is organised |
+| [CHANGELOG.md](CHANGELOG.md) | Changes since the version evaluated in the thesis |
 
-## Acknowledgements and citation
+## Data and privacy
 
-- Segmentation: Cellpose-SAM (Stringer and Pachitariu). Please cite Cellpose if
-  you use this tool in your work.
+CelloType runs entirely on the local machine and does not upload images. Microscopy images and
+patient-derived data must not be committed to this repository; the `.gitignore` excludes common
+microscopy formats as a safety net. CelloType is research software and is not intended for
+diagnostic use.
+
+## Citation
+
+CelloType was developed by Abril Herrlein as the final project of the Bioengineering degree at
+the Instituto Tecnológico de Buenos Aires (ITBA), supervised by Dra. María Andrea Camilletti.
+The citation metadata is in [CITATION.cff](CITATION.cff), which GitHub shows under "Cite this
+repository".
+
+> A. Herrlein, "Desarrollo de una plataforma web para segmentación y cuantificación de imágenes
+> de fluorescencia multicanal," Proyecto final de carrera, Bioingeniería, Instituto Tecnológico
+> de Buenos Aires, 2026.
+
+Work that uses CelloType should also cite the models behind its results:
+
+- **Cellpose-SAM.** M. Pachitariu, M. Rariden and C. Stringer, "Cellpose-SAM: superhuman
+  generalization for cellular segmentation," bioRxiv, 2025, doi:10.1101/2025.04.28.651001.
+- **Cellpose.** C. Stringer, T. Wang, M. Michaelos and M. Pachitariu, "Cellpose: a generalist
+  algorithm for cellular segmentation," Nature Methods 18, 100 to 106, 2021,
+  doi:10.1038/s41592-020-01018-x.
+- **StarDist**, when the StarDist option was used. U. Schmidt, M. Weigert, C. Broaddus and
+  G. Myers, "Cell Detection with Star-Convex Polygons," MICCAI 2018,
+  doi:10.1007/978-3-030-00934-2_30; and M. Weigert et al., WACV 2020.
+
+Reference workflow of the agreement study: A. Waisman, "Multi-Channel Nuclear Analysis: An
+ImageJ/FIJI Plugin for Automated Nuclear Segmentation and Multi-Channel Fluorescence Analysis,"
+microPublication Biology, 2025, doi:10.17912/micropub.biology.001590.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Released under the [MIT License](LICENSE).
