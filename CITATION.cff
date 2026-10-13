@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+message: >-
+  Work that uses CelloType should cite the thesis below, and the segmentation
+  models behind its results (Cellpose-SAM, Cellpose, and StarDist when used),
+  as listed in the README.
+title: CelloType
+abstract: >-
+  Local web application for the segmentation and quantification of
+  multichannel fluorescence microscopy images: dataset organisation,
+  Cellpose-SAM segmentation, mask review, per-object measurement on every
+  channel and descriptive analysis in one guided workflow.
+type: software
+authors:
+  - family-names: Herrlein
+    given-names: Abril
+    affiliation: Instituto Tecnológico de Buenos Aires (ITBA)
+repository-code: "https://github.com/abrilcode/CelloType"
+license: MIT
+keywords:
+  - fluorescence microscopy
+  - image analysis
+  - cell segmentation
+  - nuclei segmentation
+  - Cellpose
+  - StarDist
+  - bioimage analysis
+preferred-citation:
+  type: thesis
+  title: >-
+    Desarrollo de una plataforma web para segmentación y cuantificación de
+    imágenes de fluorescencia multicanal
+  authors:
+    - family-names: Herrlein
+      given-names: Abril
+  thesis-type: "Proyecto final de carrera, Bioingeniería"
+  institution:
+    name: Instituto Tecnológico de Buenos Aires
+  year: 2026
+  url: "https://github.com/abrilcode/CelloType"
