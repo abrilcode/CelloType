@@ -11,6 +11,11 @@ concordant segmentations and readouts on these images; they do not establish the
 either method. All runs used the GPU at full resolution (no downscaling), no background
 subtraction, and nuclear segmentation only.
 
+**StarDist option in the app.** The app can also segment nuclei with StarDist. That option runs
+the same model and settings as the reference below (on the B.9 field its labels are identical to
+the reference call, 181 objects). The agreement figures in this document describe Cellpose-SAM
+against that reference; results made with the StarDist option are those of the reference method.
+
 ## Method (shared by all datasets)
 
 **Reference method, reproduced exactly** from a published ImageJ/FIJI multichannel nuclear-analysis
