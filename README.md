@@ -87,11 +87,11 @@ images** for a dataset organised into experimental conditions.
 
 | Step | What happens | Decided by the researcher |
 |---|---|---|
-| **1. Raw data** | Files are read and grouped into fields; each field is assigned to a condition. | Files, conditions |
-| **2. Channels** | Marker names, the channel to segment, the object type and the model. | Channel, object type, model |
-| **3. Segment** | Every field is segmented with progress and timing; masks are reviewed and edited. | Border rule, mask edits |
-| **4. Measure** | The same masks are measured on every channel. | Measurements, background, pixel size |
-| **5. Analysis** | Distributions, co-expression and positivity by condition. | Plots, positivity rule, control |
+| **1.&nbsp;Raw&nbsp;data** | Files are read and grouped into fields; each field is assigned to a condition. | Files, conditions |
+| **2.&nbsp;Channels** | Marker names, the channel to segment, the object type and the model. | Channel, object type, model |
+| **3.&nbsp;Segment** | Every field is segmented with progress and timing; masks are reviewed and edited. | Border rule, mask edits |
+| **4.&nbsp;Measure** | The same masks are measured on every channel. | Measurements, background, pixel size |
+| **5.&nbsp;Analysis** | Distributions, co-expression and positivity by condition. | Plots, positivity rule, control |
 
 The single-image flow has four steps (Raw data, Segment, Measure, Plot), with the channel, object
 type and model chosen in the Segment step.
