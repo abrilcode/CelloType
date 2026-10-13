@@ -77,13 +77,14 @@
 
     <div id="workspace" class="hidden" data-step="segment">
       <div class="controls">
+        <div class="panel-head"><h2>Segment</h2><span id="seg-meta" class="meta"></span></div>
         <div class="block">
           <h3>View</h3>
           <div id="viewlist"></div>
           <div class="actionrow"><button id="view-btn" class="sm hidden">Display and contrast</button></div>
         </div>
         <div class="block">
-          <h3>Segment</h3>
+          <h3>Settings</h3>
           <div id="segpick"></div>
           <div id="seg-note" class="note"></div>
           <div class="field engine-opt"><span>Objects</span>
@@ -97,16 +98,17 @@
               <label class="sd-opt"><input type="radio" name="segengine-single" value="stardist"> StarDist</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">StarDist (2D_versatile_fluo) is trained on fluorescent nuclei, so it is offered for nuclei only. It runs at full resolution with the settings of the reference workflow in the agreement study (normalisation to the 1st to 99.8th percentiles, probability 0.5, overlap 0.4). Cellpose-SAM is the default and the model validated against it.</span></span>
             </div></div>
           <div class="edge-opt">
-            <label><input type="checkbox" id="edge-single" checked> Exclude objects touching the image border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span>
+            <label><input type="checkbox" id="edge-single" checked> Exclude objects touching the border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span>
           </div>
           <div class="actionrow">
             <button id="continue" class="primary" disabled>Segment</button>
-            <button id="edit-seg" class="sm hidden">Edit</button>
+            <button id="edit-seg" class="hidden">Edit masks</button>
           </div>
           <div id="msgs"></div>
         </div>
         <div class="block">
           <div id="bg-sub-single-wrap" class="hidden">
+            <h3>Measurement</h3>
             <div class="optline"><label><input type="checkbox" id="bg-sub-single"> Subtract background</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn it on only when it suits the images, and keep the same setting for every image compared, including the controls.</span></span></div>
             <div class="px-opt"><label class="inline">Pixel size <input type="text" id="px-single" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Read from the file when it carries one (CZI, OME-TIFF, ImageJ TIFF). For images without one, the pixel size from the microscope or a calibration slide can be entered here; it is used only for those images and never replaces a pixel size stored in a file. Sizes are then also given in µm and µm². Pixel columns are always kept, and positions stay in pixels.</span></span></div>
             <p class="note" id="px-single-note"></p>
@@ -121,19 +123,17 @@
       </div>
     </div>
 
-    <div id="single-ctx" class="ctxbar hidden" data-step="measure,plot"></div>
-
     <div id="measure-panel" data-step="measure" class="panel">
-      <div class="panel-head"><h2>Measurements</h2><span id="measure-meta" class="meta"></span></div>
+      <div class="panel-head"><h2>Measurements</h2><span class="ctx-slot"></span><span id="measure-meta" class="meta"></span></div>
       <div id="measure-out"></div>
       <div class="rowend">
         <button class="back">Back</button>
-        <button id="to-plot" class="primary hidden">Plot distributions</button>
+        <button id="to-plot" class="primary hidden">Continue to plots</button>
       </div>
     </div>
 
     <div id="plot-panel" data-step="plot" class="panel">
-      <div class="panel-head"><h2>Distributions</h2><span class="meta">one panel per channel</span></div>
+      <div class="panel-head"><h2>Distributions</h2><span class="ctx-slot"></span></div>
       <div id="single-plot-out"></div>
       <div class="rowend"><button class="back">Back</button></div>
     </div>
@@ -182,10 +182,10 @@
         <div id="mrejected"></div>
         <div id="maddmsg"></div>
         <div class="rowend">
-          <button id="to-channels" class="primary" disabled>Continue</button>
           <button id="maddbtn">Add images</button>
           <button id="mremovesel" disabled>Remove selected</button>
           <span id="sel-count" class="meta"></span>
+          <button id="to-channels" class="primary" disabled>Continue to channels</button>
           <input type="file" id="maddfiles" class="hidden" multiple accept=".czi,.tif,.tiff,.png,.jpg,.jpeg">
           <span id="maddbusy" class="loading hidden"><span class="prog run"><i></i></span><span class="meta">adding</span></span>
         </div>
@@ -525,10 +525,11 @@ function renderMeasure(sel, r, filename, maskItems) {
     const sortCtl = r.result_token
       ? `<label class="inline">Sort by <select class="sortby">${["", ...r.columns].map(c => `<option value="${esc(c)}" ${c === st.by ? "selected" : ""}>${c ? esc(c) : "file order"}</option>`).join("")}</select></label>`
         + `<label class="inline">Order <select class="sortdir"><option value="asc" ${!st.desc ? "selected" : ""}>Ascending</option><option value="desc" ${st.desc ? "selected" : ""}>Descending</option></select></label>` : "";
-    const extra = (r.run_parameters ? `<button class="dlparams">Download parameters</button>` + infoTip("The parameters file records how this table was produced: versions, segmentation settings, manual mask edits, background, border rule and measurements. Save to folder writes the table and its parameters file together. If masks were edited by hand, keep the masks as well: an edited run cannot be reproduced from the parameters alone.") : "")
+    const extra = (r.run_parameters ? `<button class="dlparams">Download parameters</button>` : "")
       + (maskItems && maskItems.length ? `<button class="dlmasks">Download masks</button>` : "");
-    let h = `<div class="actionrow"><button class="dlcsv primary">Download CSV</button><button class="savecsv">Save to folder</button>${extra}${sortCtl}
-             <span class="meta" style="margin-left:auto">${r.nrows} rows, showing ${Math.min(r.nrows, st.preview.length)}</span></div>`;
+    const paramsTip = r.run_parameters ? infoTip("The parameters file records how this table was produced: versions, segmentation settings, manual mask edits, background, border rule and measurements. Save to folder writes the table and its parameters file together. If masks were edited by hand, keep the masks as well: an edited run cannot be reproduced from the parameters alone.") : "";
+    let h = `<div class="tbar"><div class="tbar-group"><button class="dlcsv primary">Download CSV</button>${extra}<button class="savecsv">Save to folder</button>${paramsTip}</div>
+             <div class="tbar-group">${sortCtl}<span class="meta">${r.nrows} rows, showing ${Math.min(r.nrows, st.preview.length)}</span></div></div>`;
     h += `<div class="tablewrap"><table class="batch"><thead><tr>`;
     r.columns.forEach(c => h += `<th class="${TEXTCOLS.has(c) ? "" : "num"}">${esc(c)}</th>`);
     h += `</tr></thead><tbody>`;
@@ -649,7 +650,7 @@ function singlePlotPanel(r) {
       </div>
       <div class="plot-preview">
         <div id="single-fig" class="plot-fig"></div>
-        <div id="single-dl" class="meta" style="margin-top:8px"></div>
+        <div id="single-dl" class="actionrow"></div>
       </div>
     </div>`;
   const doSinglePlot = async () => {
@@ -664,7 +665,7 @@ function singlePlotPanel(r) {
     const pr = await (await fetch("/api/batch/plot", { method: "POST", body: fd })).json();
     if (pr.error) { $("#single-fig").innerHTML = `<p class="flag">${esc(pr.error)}</p>`; $("#single-dl").innerHTML = ""; return; }
     $("#single-fig").innerHTML = `<img class="cmpimg" src="${pr.figure}" alt="">`;
-    $("#single-dl").innerHTML = `<a download="distributions.png" href="${pr.figure}">Download plot</a> <button class="savefig">Save to folder</button>`;
+    $("#single-dl").innerHTML = `<a class="btn" download="distributions.png" href="${pr.figure}">Download plot</a> <button class="savefig">Save to folder</button>`;
     { const sv = $("#single-dl .savefig"); if (sv) sv.onclick = () => saveClick(sv, "distributions.png", pr.figure, true); }
     const im = $("#single-fig .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
   };
@@ -701,7 +702,7 @@ function toUploader() {
   $("#upmsg").innerHTML = ""; $("#filelist-single").innerHTML = "";
   $("#measure-out").innerHTML = ""; $("#single-plot-out").innerHTML = "";
   $("#measure-meta").textContent = "";
-  $("#single-ctx").classList.add("hidden");
+  document.querySelectorAll("#single .ctx-slot").forEach(b => { b.innerHTML = ""; });
   $("#to-plot").classList.add("hidden");
 }
 
@@ -757,6 +758,7 @@ function handle(data, skipped) {
 }
 
 function buildControls(f, rejected, skipped) {
+  { const sm = $("#seg-meta"); if (sm) sm.textContent = `${(f.channels || []).length} channels`; }
   // View switcher
   let v = "";
   if (f.composite) v += `<button class="viewbtn" data-view="original"><span class="vn">All</span><span class="vlabel">Merged</span></button>`;
@@ -827,7 +829,7 @@ function buildControls(f, rejected, skipped) {
   $("#measure-out").innerHTML = "";
   $("#measure-meta").textContent = "";
   $("#single-plot-out").innerHTML = "";
-  $("#single-ctx").classList.add("hidden");
+  document.querySelectorAll("#single .ctx-slot").forEach(b => { b.innerHTML = ""; });
   $("#to-plot").classList.add("hidden");
   $("#measure-btn").onclick = async () => {
     if (!SINGLE_TOKEN) return;
@@ -911,14 +913,15 @@ function buildControls(f, rejected, skipped) {
 
 // compact context strip kept above the measurement and plot steps
 let SINGLE_CH_NAME = "";
+// the segmented image, its name and object count, at the right of the Measure and Plot headings
 function singleCtx(count, chName) {
   if (chName) SINGLE_CH_NAME = chName;
-  const box = $("#single-ctx");
-  box.classList.remove("hidden");
-  box.innerHTML = `${SEG_OVERLAY ? `<img src="${SEG_OVERLAY}" alt="">` : ""}
-    <span class="name">${esc(SINGLE_NAME)}</span>
-    <span class="meta">${count} objects on ${esc(SINGLE_CH_NAME)}</span>`;
-  const im = box.querySelector("img"); if (im) im.onclick = () => openLightbox(im.src);
+  document.querySelectorAll("#single .ctx-slot").forEach(box => {
+    box.innerHTML = `${SEG_OVERLAY ? `<img src="${SEG_OVERLAY}" alt="" title="Click to enlarge">` : ""}
+      <span class="name">${esc(SINGLE_NAME)}</span>
+      <span class="meta">${count} objects on ${esc(SINGLE_CH_NAME)}</span>`;
+    const im = box.querySelector("img"); if (im) im.onclick = () => openLightbox(im.src);
+  });
 }
 
 function addSegView(count) {
@@ -1139,7 +1142,7 @@ function cxOpen(idx) {
 }
 function cxRender(f) {
   let o = "";
-  if (f.composite) o += `<option value="original">Original (all channels)</option>`;
+  if (f.composite) o += `<option value="original">Merged (all channels)</option>`;
   f.channels.forEach((c, i) => { o += `<option value="ch-${c.id}">C${i + 1} &middot; ${esc(c.name)}</option>`; });
   $("#cx-views").innerHTML = `<label class="inline">View <select id="cx-view">${o}</select></label>`;
   $("#cx-view").onchange = () => cxView($("#cx-view").value);
@@ -1340,11 +1343,10 @@ function renderChannels() {
       <div class="choices">
         <label><input type="radio" name="segengine" value="cellpose" ${SEG_ENGINE !== "stardist" ? "checked" : ""}> Cellpose-SAM</label>
         <label class="sd-opt"><input type="radio" name="segengine" value="stardist" ${SEG_ENGINE === "stardist" ? "checked" : ""}> StarDist</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">StarDist (2D_versatile_fluo) is trained on fluorescent nuclei, so it is offered for nuclei only. It runs at full resolution with the settings of the reference workflow in the agreement study (normalisation to the 1st to 99.8th percentiles, probability 0.5, overlap 0.4). Cellpose-SAM is the default and the model validated against it.</span></span>
-      </div></div>
-</div>`;
+      </div></div></div>`;
 
   h += `<div class="block edge-opt">
-    <label><input type="checkbox" id="edge-batch" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span></div>`;
+    <label><input type="checkbox" id="edge-batch" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the border</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Objects cut by the image border have a smaller area and lower total intensity than complete ones, so by default they are left out of the table, plots and statistics. They stay visible with an orange outline and keep their number. The setting can be changed after segmenting; no new segmentation is needed.</span></span></div>`;
 
   h += `<div class="rowend"><button class="back">Back</button>
         <button id="segall" class="primary">Segment all images</button></div>`;
@@ -1388,7 +1390,7 @@ function renderSegmentPanel() {
     <p class="note">Segmenting with <b>${SEG_ENGINE === "stardist" ? "StarDist" : "Cellpose-SAM"}</b>${SEG_ENGINE === "stardist" ? " (2D_versatile_fluo)" : (DEVICE_LABEL ? ", on " + DEVICE_LABEL : "")}.</p>
     <div class="loading" id="segbar-wrap"><span class="prog run" id="segbar"><i></i></span>
       <span id="segprogress" class="meta"></span></div>
-    <div class="edge-opt"><label><input type="checkbox" id="edge-batch-after" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label>${infoTip("Changing this redraws every image; no new segmentation is run.")}</div>
+    <div class="edge-opt"><label><input type="checkbox" id="edge-batch-after" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the border</label>${infoTip("Changing this redraws every image; no new segmentation is run.")}</div>
     <div id="segresults"></div>
     <div class="rowend">
       <button class="back">Back</button>
@@ -1397,9 +1399,9 @@ function renderSegmentPanel() {
     <aside class="work-right"><div class="viewer-inline">
       <div class="vi-head"><strong id="sv-title" class="ellip"></strong><span style="flex:1"></span>
         <button id="sv-prev" class="sm" disabled>Prev</button><span id="sv-pos" class="meta"></span><button id="sv-next" class="sm" disabled>Next</button></div>
-      <div class="vi-views"><button id="sv-view" class="sm" disabled>Channels and histogram</button><button id="sv-edit" class="sm" disabled>Edit masks</button>
-        <span style="flex:1"></span>${infoTip('Click a row to show its overlay here. "Channels and histogram" opens per-channel colour, brightness and contrast, and the histogram.', "right")}</div>
-      <div class="vi-img empty" id="sv-box"><img id="sv-img" alt="" title="Click for channels and histogram"><span class="vi-empty">The first segmented image appears here.</span></div>
+      <div class="vi-views"><button id="sv-view" class="sm" disabled>Display and contrast</button><button id="sv-edit" class="sm" disabled>Edit masks</button>
+        <span style="flex:1"></span>${infoTip('Click a row to show its overlay here. "Display and contrast" opens per-channel colour, brightness and contrast, and the histogram.', "right")}</div>
+      <div class="vi-img empty" id="sv-box"><img id="sv-img" alt="" title="Click for display and contrast"><span class="vi-empty">The first segmented image appears here.</span></div>
     </div></aside></div>`;
   $("#sv-prev").onclick = () => svSelect(SEG_SEL - 1);
   $("#sv-next").onclick = () => svSelect(SEG_SEL + 1);
@@ -1549,15 +1551,17 @@ function renderMeasurePanel() {
   const total = BSEG.reduce((a, s) => a + s.count, 0);
   p.innerHTML = `<div class="panel-head"><h2>Measurements</h2>
       <span class="meta">${BSEG.length} images &middot; ${total} objects</span></div>
-    <div class="block"><h3>Set measurements</h3><div id="meas-set">${measChecklist()}</div>
-      <div class="actionrow" style="margin-top:14px">
-        <label><input type="checkbox" id="bg-sub"> Subtract background</label>${infoTip('Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn it on only when it suits the images, and keep the same setting for every image compared, including the controls.')}
+    <div class="block meas-grid">
+      <div><h3>Set measurements</h3><div id="meas-set">${measChecklist()}</div></div>
+      <div class="meas-options"><h3>Options</h3>
+        <div class="optline"><label><input type="checkbox" id="bg-sub"> Subtract background</label>${infoTip('Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5-pixel margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The validation of this tool used images without background subtraction or any other preprocessing: turn it on only when it suits the images, and keep the same setting for every image compared, including the controls.')}</div>
+        <div class="px-opt"><label class="inline">Pixel size <input type="text" id="px-batch" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label>${infoTip('Optional. Sizes are given in µm and µm² for every image whose file carries a pixel size (CZI, OME-TIFF, ImageJ TIFF). For images without one, the pixel size from the microscope or a calibration slide can be entered here; it is used only for those images and never replaces a pixel size stored in a file. Pixel columns are always kept, and positions stay in pixels.')}</div>
       </div>
-      <div class="px-opt"><label class="inline">Pixel size <input type="text" id="px-batch" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label>${infoTip('Optional. Sizes are given in µm and µm² for every image whose file carries a pixel size (CZI, OME-TIFF, ImageJ TIFF). For images without one, the pixel size from the microscope or a calibration slide can be entered here; it is used only for those images and never replaces a pixel size stored in a file. Pixel columns are always kept, and positions stay in pixels.')}</div></div>
+    </div>
+    <div class="actionrow"><button id="measure-all" class="primary">Measure all</button></div>
+    <div id="measure-out-batch" class="block"></div>
     <div class="rowend"><button class="back">Back</button>
-      <button id="measure-all" class="primary">Measure all</button>
-      <button id="to-analyze" class="hidden">Plots and analysis</button></div>
-    <div id="measure-out-batch" class="block"></div>`;
+      <button id="to-analyze" class="primary hidden">Continue to analysis</button></div>`;
 
   $("#to-analyze").onclick = () => { Flow.enable("analyze"); Flow.go("analyze"); };
   $("#measure-all").onclick = async () => {
@@ -1625,7 +1629,7 @@ function buildCompareUI(channels, conditions, metrics) {
         </div>
         <div class="plot-preview">
           <div id="cmp-fig" class="plot-fig"><div class="meta">building preview</div></div>
-          <div id="cmp-dl" class="meta" style="margin-top:8px"></div>
+          <div id="cmp-dl" class="actionrow"></div>
         </div>
       </div>
     </div>
@@ -1638,11 +1642,11 @@ function buildCompareUI(channels, conditions, metrics) {
           <label><input type="checkbox" id="sc-log2" checked> log2 axes</label>
           <label>X threshold <input type="number" id="sc-xthr" placeholder="optional"></label>
           <label>Y threshold <input type="number" id="sc-ythr" placeholder="optional"></label>
-          <div class="note">One panel per condition, one point per cell. Uses the Conditions filter of the Comparison tab.</div>
+          <div class="note">One panel per condition, one point per cell.${infoTip("Uses the Conditions filter of the Comparison tab.")}</div>
         </div>
         <div class="plot-preview">
           <div id="sc-fig" class="plot-fig"><div class="meta">pick two markers</div></div>
-          <div id="sc-dl" class="meta" style="margin-top:8px"></div>
+          <div id="sc-dl" class="actionrow"></div>
         </div>
       </div>
     </div>
@@ -1658,13 +1662,10 @@ function buildCompareUI(channels, conditions, metrics) {
             <option value="absolute">Absolute value</option>
           </select></label>
           <label id="pos-ctrl-wrap">Control condition <select id="pos-ctrl">${opt(conditions)}</select></label>
-          <label id="pos-k-wrap">k <input type="number" id="pos-k" value="2" step="0.5"></label>
+          <label id="pos-k-wrap">SD multiplier <span class="nocase">k</span> <input type="number" id="pos-k" value="2" step="0.5"></label>
           <label id="pos-pct-wrap">Percentile <input type="number" id="pos-pct" value="99" step="1" min="50" max="100"></label>
           <label id="pos-abs-wrap">Value <input type="number" id="pos-abs"></label>
-          <div class="note">mean + 2 &times; SD is about the 97.7th percentile of the control
-            background, near 2.3% false positives. Use the secondary only control.
-            Each marker gets its own threshold from that control.
-            With background subtraction on, thresholds apply to background-corrected means.</div>
+          <div class="note">Each marker gets its own threshold from the control.${infoTip("Mean + 2 &times; SD is about the 97.7th percentile of the control background, near 2.3% false positives. Use the secondary-only control as the control condition. With background subtraction on, thresholds apply to background-corrected means.")}</div>
         </div>
         <div class="plot-preview"><div id="pos-out" class="plot-fig"><div class="meta">choose a control condition</div></div></div>
       </div>
@@ -1696,7 +1697,7 @@ function buildCompareUI(channels, conditions, metrics) {
     const r = await (await fetch("/api/batch/plot", { method: "POST", body: fd })).json();
     if (r.error) { $("#cmp-fig").innerHTML = `<p class="flag">${esc(r.error)}</p>`; $("#cmp-dl").innerHTML = ""; return; }
     $("#cmp-fig").innerHTML = `<img class="cmpimg" src="${r.figure}" alt="">`;
-    $("#cmp-dl").innerHTML = `<a download="comparison.png" href="${r.figure}">Download plot</a> <button class="savefig">Save to folder</button>`;
+    $("#cmp-dl").innerHTML = `<a class="btn" download="comparison.png" href="${r.figure}">Download plot</a> <button class="savefig">Save to folder</button>`;
     { const sv = $("#cmp-dl .savefig"); if (sv) sv.onclick = () => saveClick(sv, "comparison.png", r.figure, true); }
     const im = $("#cmp-fig .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
   };
@@ -1730,7 +1731,7 @@ function buildCompareUI(channels, conditions, metrics) {
     const r = await (await fetch("/api/batch/scatter", { method: "POST", body: fd })).json();
     if (r.error) { $("#sc-fig").innerHTML = `<p class="flag">${esc(r.error)}</p>`; $("#sc-dl").innerHTML = ""; return; }
     $("#sc-fig").innerHTML = `<img class="cmpimg" src="${r.figure}" alt="">`;
-    $("#sc-dl").innerHTML = `<a download="scatter.png" href="${r.figure}">Download plot</a> <button class="savefig">Save to folder</button>`;
+    $("#sc-dl").innerHTML = `<a class="btn" download="scatter.png" href="${r.figure}">Download plot</a> <button class="savefig">Save to folder</button>`;
     { const sv = $("#sc-dl .savefig"); if (sv) sv.onclick = () => saveClick(sv, "scatter.png", r.figure, true); }
     const im = $("#sc-fig .cmpimg"); if (im) im.onclick = () => openLightbox(im.src);
   };
@@ -1805,9 +1806,9 @@ function buildCompareUI(channels, conditions, metrics) {
       t += `</tbody></table>`;
     }
     t += `<div style="margin-top:16px"><img class="cmpimg" src="${r.figure}" alt=""></div>
-          <div class="actionrow"><a download="positivity.png" href="${r.figure}">Download plot</a>
+          <div class="actionrow"><a class="btn" download="positivity.png" href="${r.figure}">Download plot</a>
           <button class="savefig">Save plot to folder</button>
-          <button class="dlcell linkish">Download per-cell CSV (${r.n_cells} cells)</button>
+          <button class="dlcell">Download per-cell CSV (${r.n_cells} cells)</button>
           <button class="savecell">Save CSV to folder</button>
           ${r.run_parameters ? `<button class="dlposparams">Download parameters</button>` : ""}</div>`;
     $("#pos-out").innerHTML = t;
