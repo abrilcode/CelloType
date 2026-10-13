@@ -23,20 +23,21 @@ from typing import List
 import numpy as np
 
 from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import analysis
 import cells
 import measure
 import render
+import runlog
 import segment
 from organize import organize
 from single import inspect_single, field_channels
 
 
 def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="object", bg_infos=None,
-                   exclude_edge=None, edge_infos=None):
+                   exclude_edge=None, edge_infos=None, processed=None):
     """Measure a list of {token, image, condition, replicate} into tidy rows (one row
     per segmented object per channel). measurements selects the set (None -> basics).
     The background (when subtract_bg) is estimated per image and channel; if bg_infos is
@@ -56,8 +57,11 @@ def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="obj
         if bg_infos is not None and info:
             bg_infos.append({"image": it.get("image", ""), **info})
         exc = session.get("exclude_edge", True) if exclude_edge is None else exclude_edge
+        e_info = {"image": it.get("image", ""), **_edge_summary(session["masks"], exc)}
         if edge_infos is not None:
-            edge_infos.append({"image": it.get("image", ""), **_edge_summary(session["masks"], exc)})
+            edge_infos.append(e_info)
+        if processed is not None:
+            processed.append((it, session, info or None, e_info))
         if exc:
             rows = [r for r in rows if not r.get("at_edge")]
         for r in rows:
@@ -110,6 +114,28 @@ def _edge_summary(masks, exclude: bool) -> dict:
             "detected": n, "at_edge": k, "excluded": exc, "kept": n - exc}
 
 
+def _remember_segmentation(session, masks, info, channel_name):
+    """Keep what the run-parameters record needs: the settings used, the time, the automatic
+    object count, a copy of the automatic masks (to count manual edits) and an empty edit log."""
+    session["seg_info"] = {**info, "segmented_at": runlog.now_iso(),
+                           "n_objects": segment.count_objects(masks), "channel_name": channel_name}
+    session["auto_masks"] = np.asarray(masks).copy()
+    session["edit_sources"] = []
+
+
+def _note_edit(session, source: str):
+    session.setdefault("edit_sources", []).append(source)
+
+
+def _store_result(rtok, rows, record):
+    _MEASURE_RESULTS[rtok] = rows
+    _RUN_RECORDS[rtok] = record
+    while len(_MEASURE_RESULTS) > 8:                      # keep only recent results
+        old = next(iter(_MEASURE_RESULTS))
+        _MEASURE_RESULTS.pop(old, None)
+        _RUN_RECORDS.pop(old, None)
+
+
 def _overlay(session, arr, masks):
     """Segmentation overlay; objects excluded at the border get their own outline colour."""
     ids = measure.edge_object_ids(masks) if session.get("exclude_edge", True) else None
@@ -131,6 +157,8 @@ _SINGLE_SESSIONS: dict = {}
 # result_token -> measured rows, so plotting/positivity reuse them without re-measuring
 # (this is what makes the live plot preview fast and independent of segmentation sessions)
 _MEASURE_RESULTS: dict = {}
+# result_token -> run-parameters record (runlog), kept alongside _MEASURE_RESULTS
+_RUN_RECORDS: dict = {}
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -217,6 +245,7 @@ async def single_commit(token: str = Form(...), idmap: str = Form(...)):
         return JSONResponse({"error": "This session expired. Upload the image again."}, status_code=410)
     masks = segment.decode_idmap_dataurl(idmap)
     session["masks"] = masks
+    _note_edit(session, "web_editor")
     arr = field_channels(session["paths"])[session["seg_channel"]][1]
     return JSONResponse({
         "count": segment.count_objects(masks),
@@ -258,15 +287,18 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
         r["replicate"] = 1
     cols = ["image", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
-    _MEASURE_RESULTS[rtok] = rows
-    if len(_MEASURE_RESULTS) > 8:
-        _MEASURE_RESULTS.pop(next(iter(_MEASURE_RESULTS)))
+    fields = [runlog.field_record(image, session, background=(bg_infos[0] if bg_infos else None),
+                                  edge=edge_infos[0])]
+    record = runlog.build_record("single", fields, sel or measure.DEFAULT_MEASUREMENTS, cols, bg_on, bg_method,
+                                 len(rows), session.get("seg_info") or {}, "measurements.csv")
+    _store_result(rtok, rows, record)
     chans = list(dict.fromkeys(r["channel"] for r in rows))
     return JSONResponse({
         "result_token": rtok, "channels": chans,
         "columns": cols, "preview": rows[:100], "nrows": len(rows),
         "csv": _rows_csv(rows, cols),
         "params": {"subtract_bg": bg_on, "bg_method": bg_method if bg_on else None, "background": bg_infos},
+        "run_parameters": record,
         "edge": {"exclude": all(e["exclude"] for e in edge_infos) if edge_infos else True,
                  "rule": "touching the image border",
                  "detected": sum(e["detected"] for e in edge_infos), "excluded": sum(e["excluded"] for e in edge_infos),
@@ -284,23 +316,28 @@ async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false")
     if err:
         return err
     sel = json.loads(measurements) if measurements.strip() else None
-    bg_infos, edge_infos = [], []
+    bg_infos, edge_infos, processed = [], [], []
     exc = _flag(exclude_edge) if exclude_edge.strip() else None
     allrows = _measure_items(json.loads(items), subtract_bg=bg_on, measurements=sel, bg_method=bg_method,
-                             bg_infos=bg_infos, exclude_edge=exc, edge_infos=edge_infos)
+                             bg_infos=bg_infos, exclude_edge=exc, edge_infos=edge_infos, processed=processed)
     if not allrows:
         return JSONResponse({"error": "No measurements. Segment the images first, then Measure (the session may have expired)."}, status_code=400)
     chans = list(dict.fromkeys(r["channel"] for r in allrows))
     conds = list(dict.fromkeys(r["condition"] for r in allrows))
     cols = ["image", "condition", "replicate", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
-    _MEASURE_RESULTS[rtok] = allrows
-    if len(_MEASURE_RESULTS) > 8:                         # keep only recent results
-        _MEASURE_RESULTS.pop(next(iter(_MEASURE_RESULTS)))
+    fields = [runlog.field_record(it.get("image", ""), ses, condition=(it.get("condition") or None),
+                                  replicate=it.get("replicate"), background=bgi, edge=edi)
+              for it, ses, bgi, edi in processed]
+    record = runlog.build_record("batch", fields, sel or measure.DEFAULT_MEASUREMENTS, cols, bg_on, bg_method,
+                                 len(allrows), (processed[0][1].get("seg_info") or {}) if processed else {},
+                                 "measurements.csv")
+    _store_result(rtok, allrows, record)
     return JSONResponse({
         "result_token": rtok,
         "columns": cols, "preview": allrows[:100], "nrows": len(allrows),
         "csv": _rows_csv(allrows, cols), "channels": chans, "conditions": conds,
+        "run_parameters": record,
         "params": {"subtract_bg": bg_on, "bg_method": bg_method if bg_on else None, "background": bg_infos},
         "edge": {"exclude": all(e["exclude"] for e in edge_infos) if edge_infos else True,
                  "rule": "touching the image border",
@@ -379,6 +416,12 @@ async def batch_positivity(result_token: str = Form(...), channel: str = Form(..
                              "positive": 1 if float(r[value]) > thr else 0})
     res["cell_csv"] = _rows_csv(cellrows, cell_cols)
     res["n_cells"] = len(cellrows)
+    rec = _RUN_RECORDS.get(result_token)
+    if rec:
+        res["run_parameters"] = runlog.with_positivity(
+            rec, "single", value, channel, control, rule, float(k or 2), float(percentile or 99),
+            (float(absolute) if absolute.strip() else None), {str(channel): res.get("threshold")},
+            res.get("expr"), "cells_positive.csv")
     return JSONResponse(res)
 
 
@@ -422,6 +465,12 @@ async def batch_positivity_all(result_token: str = Form(...), control: str = For
         cols += [ch, ch + "_positive"]
     res["cell_csv"] = _rows_csv(list(cells.values()), cols)
     res["n_cells"] = len(cells)
+    rec = _RUN_RECORDS.get(result_token)
+    if rec:
+        res["run_parameters"] = runlog.with_positivity(
+            rec, "all", value, None, control, rule, float(k or 2), float(percentile or 99),
+            (float(absolute) if absolute.strip() else None), dict(res.get("thresholds") or {}),
+            res.get("expr"), "cells_positive.csv")
     return JSONResponse(res)
 
 
@@ -572,6 +621,7 @@ async def reload_cellpose(token: str = Form(...)):
     if masks.shape != arr.shape:
         return JSONResponse({"error": f"Edited mask size {masks.shape} does not match the image {arr.shape}."}, status_code=400)
     session["masks"] = masks
+    _note_edit(session, "cellpose_gui")
     return JSONResponse({
         "count": segment.count_objects(masks),
         "overlay": _overlay(session, arr, masks),
@@ -593,11 +643,53 @@ async def import_cellpose(token: str = Form(...), file: UploadFile = File(...)):
     if masks.shape != arr.shape:
         return JSONResponse({"error": f"Mask size {masks.shape} does not match the image {arr.shape}."}, status_code=400)
     session["masks"] = masks
+    _note_edit(session, "imported_file")
     return JSONResponse({
         "count": segment.count_objects(masks),
         "overlay": _overlay(session, arr, masks),
         "edge": _edge_summary(masks, session.get("exclude_edge", True)),
     })
+
+
+def _attachment(name: str) -> str:
+    """Content-Disposition for a download. HTTP headers only carry ASCII, so non-ASCII file
+    names (Señal, Día) go in filename* (UTF-8, RFC 6266) with an ASCII fallback."""
+    import unicodedata
+    from urllib.parse import quote
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    plain = "".join(ch if ch.isprintable() and ch not in '"\\' else "_" for ch in plain) or "masks.tif"
+    return f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(name)}"
+
+
+@app.post("/api/masks")
+async def download_masks(items: str = Form(...)):
+    """Final label masks (after any manual edits), one 16-bit label TIFF per image
+    (32-bit if an image has more than 65535 labels): 0 = background, each object keeps the
+    number used in the measurement table. One image -> the TIFF; several -> a ZIP."""
+    import tifffile, zipfile
+    entries = json.loads(items)
+    files = []
+    for it in entries:
+        session = _SINGLE_SESSIONS.get(it.get("token"))
+        if not session or session.get("masks") is None:
+            continue
+        m = np.asarray(session["masks"])
+        m = m.astype(np.uint16 if m.max() < 65536 else np.uint32)
+        buf = io.BytesIO()
+        tifffile.imwrite(buf, m)
+        stem = os.path.splitext(os.path.basename(it.get("image") or "image"))[0] or "image"
+        files.append((f"{stem}_masks.tif", buf.getvalue()))
+    if not files:
+        return JSONResponse({"error": "No masks to download. Segment first (the session may have expired)."}, status_code=410)
+    if len(files) == 1:
+        name, data = files[0]
+        return Response(data, media_type="image/tiff", headers={"Content-Disposition": _attachment(name)})
+    zbuf = io.BytesIO()
+    with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in files:
+            z.writestr(name, data)
+    return Response(zbuf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="masks.zip"'})
 
 
 @app.post("/api/single/edge")
@@ -630,11 +722,13 @@ async def batch_segment_one(token: str = Form(...), key: str = Form(...),
         return JSONResponse({"error": f"Channel {channel + 1} not present in {key}."}, status_code=400)
     arr = channels[channel][1]
     diam = float(diameter) if diameter.strip() else None
-    masks, flows = segment.segment_channel(arr, diameter=diam, return_flows=True)
+    info = {}
+    masks, flows = segment.segment_channel(arr, diameter=diam, return_flows=True, info=info)
     # each segmented field gets its own single-session so the editor/measurement/viewer reuse works per image
     field_token = uuid.uuid4().hex
     session = {"paths": mapping[key], "masks": masks, "flows": flows,
                "seg_channel": channel, "seg_type": type, "exclude_edge": _flag(exclude_edge)}
+    _remember_segmentation(session, masks, info, channels[channel][0])
     _SINGLE_SESSIONS[field_token] = session
     return JSONResponse({"key": key, "count": segment.count_objects(masks),
                          "overlay": _overlay(session, arr, masks),
@@ -660,12 +754,14 @@ async def single_segment(
 
     arr = channels[channel][1]
     diam = float(diameter) if diameter.strip() else None
-    masks, flows = segment.segment_channel(arr, diameter=diam, return_flows=True)
+    info = {}
+    masks, flows = segment.segment_channel(arr, diameter=diam, return_flows=True, info=info)
     session["masks"] = masks
     session["flows"] = flows
     session["seg_channel"] = channel
     session["seg_type"] = type
     session["exclude_edge"] = _flag(exclude_edge)
+    _remember_segmentation(session, masks, info, channels[channel][0])
 
     return JSONResponse({
         "count": segment.count_objects(masks),

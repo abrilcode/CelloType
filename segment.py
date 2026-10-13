@@ -63,13 +63,14 @@ def device_name() -> str:
 
 def segment_channel(arr, diameter=None, flow_threshold: float = 0.4,
                     cellprob_threshold: float = 0.0, max_side: int = None,
-                    return_flows: bool = False):
+                    return_flows: bool = False, info: dict = None):
     """
     Run Cellpose-SAM on a single 2D channel. Returns an int label image (0=bg)
     at the ORIGINAL resolution. For speed on CPU the model runs on a downscaled
     copy (longest side <= max_side); labels are mapped back with nearest-neighbor.
     If return_flows=True, also returns the eval flows (at the downscaled size) for
-    writing a Cellpose `_seg.npy`.
+    writing a Cellpose `_seg.npy`. If info is a dict, it is filled with the settings
+    actually used (sizes, downscale factor, size limit, model, device, thresholds).
     """
     from scipy.ndimage import zoom
 
@@ -88,6 +89,15 @@ def segment_channel(arr, diameter=None, flow_threshold: float = 0.4,
         cellprob_threshold=cellprob_threshold,
     )
     masks = np.asarray(masks)
+    if info is not None:
+        import os
+        info.update(original_size_px=[int(h), int(w)],
+                    processed_size_px=[int(small.shape[0]), int(small.shape[1])],
+                    downscale_factor=round(float(scale), 4), max_side_limit=int(max_side),
+                    model=os.path.basename(str(getattr(model, "pretrained_model", "cpsam"))),
+                    device=_DEVICE or "cpu", flow_threshold=float(flow_threshold),
+                    cellprob_threshold=float(cellprob_threshold),
+                    diameter=(None if diameter is None else float(diameter)))
 
     if scale < 1.0:
         # upscale labels to full resolution with nearest-neighbor (preserves ids)
