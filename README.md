@@ -13,6 +13,7 @@
 </p>
 
 <p align="center">
+  <a href="#how-it-works">How it works</a> &nbsp;·&nbsp;
   <a href="#installation">Installation</a> &nbsp;·&nbsp;
   <a href="#usage">Usage</a> &nbsp;·&nbsp;
   <a href="#outputs">Outputs</a> &nbsp;·&nbsp;
@@ -50,6 +51,18 @@ next to the results.
   condition, as descriptive statistics.
 - **Reproducible results.** Every table can be exported with a JSON record of how it was produced
   and with the final label masks.
+
+## How it works
+
+<p align="center">
+  <img src="docs/assets/fig-workflow.png" width="100%" alt="CelloType workflow in four phases. Input: select images, read files at native bit depth, organise the dataset. Segmentation: choose the channel, object type and model, segment with Cellpose-SAM or StarDist, review and edit masks, with a loop back to segmentation. Quantification: choose measurements, measure every channel with the same masks, export the CSV, parameters JSON and masks. Analysis: analysis settings, then plots and positivity. Orange outlines mark researcher decisions; grey outlines mark automated steps.">
+</p>
+<p align="center"><sub>Steps of the multiple-image flow. Orange outlines mark decisions taken by the researcher; grey outlines, automated steps. Masks are reviewed and edited before anything is measured (dashed red: back to segmentation). The single-image flow has no dataset organisation and no positivity.</sub></p>
+
+<p align="center">
+  <img src="docs/assets/fig-architecture.png" width="100%" alt="CelloType architecture. Six stages (import, inspect, segment, review, measure, analyse) across four layers: interface controls, FastAPI endpoints in app.py, Python modules, and the outputs of each stage, from the channel stack to the measurements CSV, the parameters JSON, the masks and the figures.">
+</p>
+<p align="center"><sub>Architecture. At each stage the interface sends a request to a FastAPI endpoint (under <code>/api</code>), a Python module does the work, and its output feeds the next stage. Details in <a href="docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a>.</sub></p>
 
 ## Installation
 
