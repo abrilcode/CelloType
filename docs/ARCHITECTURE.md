@@ -5,6 +5,11 @@ with no build step. The interface, the endpoints and the scientific modules are 
 change to how the interface works never requires rewriting how images are read, segmented,
 measured or analysed.
 
+<p align="center">
+  <img src="assets/fig-architecture.png" width="100%" alt="CelloType architecture. Six stages (import, inspect, segment, review, measure, analyse) across four layers: interface controls, FastAPI endpoints in app.py, Python modules, and the outputs of each stage.">
+</p>
+<p align="center"><sub>Columns are the stages of the analysis; bands are the layers. Orange outlines mark researcher input; grey, automated processing. Endpoint paths are under <code>/api</code>. Dashed red: after review, a field can be segmented again.</sub></p>
+
 ## Modules by layer
 
 | Layer | Implementation |
