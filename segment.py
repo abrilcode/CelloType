@@ -22,9 +22,10 @@ _SD_DEVICE = None
 ENGINES = ("cellpose", "stardist")
 ENGINE_LABELS = {"cellpose": "Cellpose-SAM", "stardist": "StarDist"}
 # StarDist settings = the reference workflow of the agreement study (Multi_Channel_Nuclear_Analysis.ijm,
-# test-pipeline/validation/stardist_segment.py): versatile fluorescent-nuclei model, input normalised to
-# the 1st-99.8th percentiles, probability 0.5, overlap (NMS) 0.4. Objects whose centre is within 2 px of
-# the border are dropped by StarDist itself; the app's own border rule applies on top, as for Cellpose.
+# docs/VALIDATION.md): versatile fluorescent-nuclei model, input normalised to the 1st-99.8th
+# percentiles, probability 0.5, overlap (NMS) 0.4. StarDist itself drops objects whose centre lies within
+# 2 cells of its probability grid from the border (b=2; about 4 px for this model, whose grid is 2 x 2);
+# the app's own border rule applies on top, as for Cellpose-SAM.
 STARDIST_MODEL = "2D_versatile_fluo"
 STARDIST_PROB, STARDIST_NMS = 0.5, 0.4
 STARDIST_PERCENTILES = (1.0, 99.8)
@@ -89,8 +90,8 @@ def segment_channel(arr, diameter=None, flow_threshold: float = 0.4,
     to a full-resolution run. A diameter given by the user is in original pixels. Without
     reduction the call is the same as always (no rescale).
     If return_flows=True, also returns the eval flows for writing a Cellpose `_seg.npy`.
-    If info is a dict, it is filled with the settings actually used (sizes, downscale
-    factor, size limit, model, device, thresholds).
+    If info is a dict, it is filled with the settings used (sizes, downscale factor, size
+    limit, model, device, thresholds; diameter = the value requested, in original pixels).
     """
     if max_side is None:
         max_side = default_max_side()
@@ -132,12 +133,13 @@ def downscale_note(info: dict):
         return None
     ph, pw = info["processed_size_px"]
     why = "no GPU was found" if (info.get("device") or "cpu") == "cpu" else "the image is larger than the size limit"
-    return (f"Segmented on a reduced copy (x{f:.2f}, {pw} x {ph} px) because {why}. Small nuclei may be "
-            "missed and close nuclei may merge; this setting was not part of the validation.")
+    return (f"Segmentation ran on a reduced copy (×{f:.2f}, {pw} × {ph} px) because {why}; the masks are "
+            "returned at full size. Small objects may be missed and touching objects may merge; the agreement "
+            "study used full-resolution images.")
 
 
 def stardist_available() -> bool:
-    """True when the optional StarDist engine (stardist + tensorflow) is installed."""
+    """True when the optional StarDist engine (stardist, tensorflow, csbdeep) is installed."""
     import importlib.util
     return all(importlib.util.find_spec(m) is not None for m in ("stardist", "tensorflow", "csbdeep"))
 
@@ -155,8 +157,8 @@ def get_stardist():
 
 def segment_stardist(arr, info: dict = None):
     """Segment nuclei with StarDist (2D_versatile_fluo) at full resolution, with the settings of the
-    reference workflow. Returns an int32 label image (0 = background). No flows: the Cellpose GUI
-    handoff is not available for these masks; the web editor is."""
+    reference workflow. Returns an int32 label image (0 = background). No flows are returned; the
+    masks are edited in the web editor, like Cellpose-SAM masks."""
     from csbdeep.utils import normalize
     a = np.asarray(arr)
     h, w = a.shape[:2]

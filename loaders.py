@@ -81,7 +81,7 @@ def load_file(path: str, plane: dict = None) -> LoadedImage:
     defaults to 0 (hook for a future plane selector; the app always uses the defaults)."""
     ext = ext_of(path)
     if ext not in SUPPORTED_EXTS:
-        raise LoadError(f"Unsupported format '{ext}'. Accepted: {sorted(SUPPORTED_EXTS)}")
+        raise LoadError(f"Unsupported format '{ext}'. Accepted: {', '.join(sorted(SUPPORTED_EXTS))}.")
     plane = dict(plane or {})
     try:
         if ext == ".czi":
@@ -137,7 +137,7 @@ def _load_czi(path: str, plane: dict = None) -> LoadedImage:
     if sizes.get("M", 1) > 1:
         raise LoadError(
             f"This CZI is a tile scan (mosaic) of {sizes['M']} tiles. CelloType analyses one field of "
-            "view: export the stitched image or a single tile from ZEN and upload that.")
+            "view: export the stitched image or a single tile from ZEN and load that.")
     # read only the plane that is used (index 0 of every non-C/Y/X axis by default)
     want = {d: int(plane.get(d, 0)) for d in sizes if d not in ("C", "Y", "X", "A", "M")}
     for d, i in want.items():
@@ -168,7 +168,7 @@ def _load_czi(path: str, plane: dict = None) -> LoadedImage:
     if all(int(c.max()) == 0 for c in channels):
         raise LoadError(
             "CZI decoded to all zeros (compression not decodable here). "
-            "Re-export as OME-TIFF from ZEN/Fiji and upload that."
+            "Re-export as OME-TIFF from ZEN or Fiji and load that."
         )
 
     names, colors = _czi_channels_meta(czi, len(channels))
@@ -302,7 +302,7 @@ def _split_by_axes(arr: np.ndarray, axes: str, plane: dict = None, info: dict = 
     if ch_axis is None:
         if a.ndim == 2:
             return [np.asarray(a)]
-        # 3D with no labeled channel axis: assume smallest non-YX axis is channels
+        # no labelled channel axis: take the first remaining axis as channels
         ch_axis = 0
     if ax[ch_axis] in ("I", "Q") and a.shape[ch_axis] > 1:
         info["unlabelled"] = True
@@ -343,7 +343,7 @@ def _load_pil(path: str) -> LoadedImage:
         bit_depth=bit_depth_of(channels[0].dtype),
         quantitative=False,   # 8-bit / lossy: not measurement-grade
         colors=colors,
-        warnings=["Display image (8-bit/lossy): intensities are not quantitative."],
+        warnings=["Display image (PNG or JPEG): intensities are not quantitative."],
     )
 
 

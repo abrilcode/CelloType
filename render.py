@@ -3,7 +3,7 @@ On-demand rendering for the post-segmentation viewer.
 
 Compose a display image from the field's channels: each visible channel is
 contrast-stretched to 8-bit, tinted with a user-chosen colour, and added
-(screen/additive blend) into an RGB image. Optionally overlay the segmentation
+(additive blend, clipped at white) into an RGB image. Optionally overlay the segmentation
 as CONTOURS (object outlines) or as filled MASKS (each object its own colour),
 on top of whatever channels are shown. This lets the user see the ROI outlines
 over any single channel, any combination, or the merged composite.
@@ -93,7 +93,7 @@ def compose(channels, colors, visible, masks=None, seg_mode="off", ranges=None,
     """
     channels: list of (name, 2D array). colors: list of RGB (0-255) or hex per channel.
     visible: list of bool per channel. ranges: optional per-channel [lo, hi] display range
-    (brightness/contrast). masks: label image or None. seg_mode: off|contours|masks.
+    (brightness/contrast). masks: label image or None. seg_mode: off|contours|masks|both.
     edge_ids: labels excluded at the image border; drawn with edge_rgb contours and a
     grey, lighter fill so they stay visible but stand apart.
     Returns a base64 PNG data URI.

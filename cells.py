@@ -1,5 +1,6 @@
 """
-Whole-cell segmentation anchored to nuclei.
+Whole-cell segmentation anchored to nuclei. Not called by the current interface (see
+docs/ARCHITECTURE.md); kept as an earlier approach.
 
 The user picks the nuclei channel AND a cytoplasm/membrane channel. We segment
 whole cells with Cellpose on the cytoplasm channel, then MATCH each cell to the
@@ -15,7 +16,6 @@ Rules (documented, deliberately simple and honest about the edge cases):
   itself (empty cytoplasm ring).
 - If one Cellpose cell contains two nuclei (undersegmentation), the cell goes to
   the nucleus with the largest overlap; the other nucleus falls back to nucleus-only.
-  The user can fix merges in the editor.
 """
 
 from __future__ import annotations
