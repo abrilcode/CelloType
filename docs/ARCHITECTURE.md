@@ -15,15 +15,17 @@ measured or analysed.
 | Layer | Implementation |
 |---|---|
 | Frontend | `web/index.html`, `web/app.css`, `web/editor.js`: HTML, CSS and JavaScript, no build step |
-| API | `app.py`: FastAPI endpoints for the single-image and batch flows, rendering and exports |
-| Input | `loaders.py` (CZI, TIFF, PNG/JPEG; channel names, pixel size, planes), `organize.py` (fields and conditions), `single.py` (single-image session) |
-| Segmentation | `segment.py`: Cellpose-SAM (`cpsam`, PyTorch) by default, optional StarDist (TensorFlow) for nuclei |
+| API | `app.py`: FastAPI endpoints for the Single image and Multiple images flows, rendering and exports |
+| Input | `loaders.py` (CZI, TIFF, PNG/JPEG; channel names, pixel size, planes), `organize.py` (fields and conditions), `single.py` (one field from its files: channel order, names and pixel size; used by both flows) |
+| Segmentation | `segment.py`: Cellpose-SAM by default (PyTorch; the `cpsam_v2` weights, default model of the tested Cellpose 4.2.1.1), optional StarDist (TensorFlow) for nuclei |
 | Measurement | `measure.py`: per-object measurements, background, border rule and µm conversion (NumPy, SciPy, scikit-image) |
 | Rendering and analysis | `render.py` (channels, composites, overlays, histograms), `analysis.py` (plots and positivity; Matplotlib, seaborn) |
-| Run record | `runlog.py`: the JSON record saved next to every result |
+| Run record | `runlog.py`: the JSON parameter record offered with every table |
 
-`cells.py` holds an earlier whole-cell approach anchored to nuclei; the current interface does
-not call it.
+Code the current interface does not call: `cells.py` (an earlier whole-cell approach anchored to
+nuclei) with `measure.measure_regions`, and the endpoints `/api/upload`, `/api/config` and the
+Cellpose GUI hand-off (`/api/single/export_cellpose`, `launch_cellpose`, `reload_cellpose`,
+`import_cellpose`). Masks are edited in the web editor (`web/editor.js`).
 
 ## Design notes
 

@@ -1,15 +1,15 @@
 """
 Multi-file organization (Stage 1, flow B).
 
-Takes many uploaded files and turns them into a validated dataset of
+Takes many uploaded files and turns them into a checked dataset of
 "fields" (one field = one imaged position with its channels), grouped by
 condition. Handles:
 - two input modes: multichannel file (1 file = 1 field) vs separate
   single-channel files grouped by base name;
-- deterministic filename parsing of condition / replicate / marker;
+- deterministic filename parsing of condition / technical replicate (Foto number) / marker;
 - a control-vs-experimental guess per field (immunofluorescence negative /
   secondary-only controls), which the user confirms;
-- per-field validation with explicit flags.
+- per-field checks with explicit flags.
 
 Nothing is guessed silently. Anything ambiguous is flagged for the user.
 """
@@ -41,7 +41,7 @@ _CONTROL_HINTS = (
 
 
 def parse_filename(filename: str) -> dict:
-    """Parse `condition-Foto<replicate>[-marker].ext` deterministically."""
+    """Parse `condition-Foto<n>[-marker].ext` deterministically (n = technical replicate)."""
     base = os.path.splitext(os.path.basename(filename))[0]
     m = _FOTO_RE.search(base)
     if not m:
@@ -147,7 +147,7 @@ def organize(paths: List[str], with_preview: bool = True, thumbnails: bool = Fal
             keys = [g["key"] for g in group]
             for g in group:
                 others = [k for k in keys if k != g["key"]]
-                g["flags"].append("Identical image to: " + ", ".join(others))
+                g["flags"].append("Same image as: " + ", ".join(others))
                 g["status"] = "needs_attention"
     for f in fields:
         f.pop("_hash", None)
@@ -174,7 +174,7 @@ def _make_field(key, mode, files, parsed, channels, quantitative, warnings,
 
     dims = {(c["width"], c["height"]) for c in channels}
     if len(dims) > 1:
-        flags.append("Channels have different dimensions; cannot combine into one field.")
+        flags.append("The channel files have different dimensions, so they cannot be combined into one field.")
         status = "needs_attention"
 
     if not parsed.get("condition"):
@@ -182,7 +182,7 @@ def _make_field(key, mode, files, parsed, channels, quantitative, warnings,
         status = "needs_attention"
 
     if parsed.get("replicate") is None:
-        flags.append("Technical replicate (Foto number) not detected. Set it manually (required).")
+        flags.append("Technical replicate (Foto number) not detected. Enter it manually.")
         if status == "ok":
             status = "needs_attention"
 

@@ -54,7 +54,7 @@ the reviewers' observations; each links to its pull request.
 - An unused file-saving endpoint, an unused import and an unused dependency (`fpdf2`).
   ([#10](https://github.com/abrilcode/CelloType/pull/10))
 
-## Evaluated version (31 August 2026)
+## v1.0.0, evaluated version (31 August 2026)
 
 The version described in the thesis and read by the reviewers: commit
 [`fa3803c`](https://github.com/abrilcode/CelloType/tree/fa3803c).

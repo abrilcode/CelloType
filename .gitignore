@@ -7,7 +7,8 @@ venv/
 env/
 *.egg-info/
 
-# App runtime output (exports for the Cellpose GUI, logs)
+# App runtime output: cellpose_edits/ (written only by the Cellpose GUI hand-off endpoints,
+# which the current interface does not call) and logs
 cellpose_edits/
 *.log
 
@@ -20,7 +21,7 @@ Thumbs.db
 .vscode/
 
 # Private data: never commit microscopy images or datasets.
-# (Remove/override if you intentionally want to ship a small demo image.)
+# (Remove or override these rules to ship a small demo image on purpose.)
 *.czi
 *.lsm
 *.nd2

@@ -36,8 +36,9 @@ single guided workflow, and runs entirely on the researcher's machine.
 Mechanical steps are automated; experimental decisions stay with the researcher and are recorded
 next to the results.
 
-- **Input.** CZI, TIFF (OME or ImageJ) and PNG/JPEG at native bit depth, with channel names and
-  pixel size read from the metadata.
+- **Input.** CZI, TIFF and PNG/JPEG, read at native bit depth (PNG and JPEG are flagged as not
+  quantitative); channel names from the CZI metadata or the file names, pixel size from CZI,
+  OME-TIFF or ImageJ TIFF metadata.
 - **Segmentation.** Cellpose-SAM for nuclei, cells or other objects on any channel, on CUDA or
   Apple Silicon GPUs with a CPU fallback; optional StarDist for nuclei.
 - **Review.** Every mask can be inspected and edited in the browser before measurement.
@@ -58,7 +59,7 @@ next to the results.
 
 ## Installation
 
-Requires Python 3.10 to 3.12. A GPU is optional but strongly recommended (NVIDIA CUDA or Apple
+Tested with Python 3.12; 3.10 to 3.12 are supported. A GPU is optional but strongly recommended (NVIDIA CUDA or Apple
 Silicon MPS). The Cellpose-SAM weights (about 1.2 GB) are downloaded to `~/.cellpose` on first
 use.
 
@@ -82,8 +83,8 @@ uvicorn app:app --host 127.0.0.1 --port 8010
 ```
 
 Open http://127.0.0.1:8010 and choose **Single image** for one field, or **Multiple images** for a
-dataset organised into experimental conditions. The interface leads through Raw data, Channels,
-Segment, Measure and Analysis.
+dataset organised into experimental conditions. Both flows lead through Raw data, Segment, Measure
+and Analysis; Multiple images adds a Channels step after Raw data.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screen-segment-dark.png">
@@ -96,8 +97,8 @@ Segment, Measure and Analysis.
 | File | Contents |
 |---|---|
 | `measurements.csv` | One row per object and channel, with the selected measurements. |
-| `<table>_parameters.json` | Inputs, settings, mask edits and software versions, and whether the result can be reproduced from the parameters alone. |
-| Masks | The final label image as TIFF, or one TIFF per field in a ZIP. |
+| `measurements_parameters.json` | Inputs, settings, mask edits and software versions, and whether the result can be reproduced from the parameters alone. |
+| `<image>_masks.tif`, `masks.zip` | The final label image as TIFF; several images come as one TIFF each in a ZIP. |
 | `cells_positive.csv` | Positivity per object and marker (multiple images). |
 | Plots | PNG figures of each analysis view. |
 
@@ -110,14 +111,14 @@ Multi-Channel Nuclear Analysis (Waisman, 2025), on five datasets: 78 fields and 
 nuclei, both mask sets measured with the same code.
 
 <p align="center">
-  <img src="docs/assets/fig-agreement.png" width="100%" alt="Three panels: segmentation agreement per dataset (Dice, F1 and matched IoU against the 0.85 threshold), nuclei counted by CelloType against the reference, and per-marker intensity correlation.">
+  <img src="docs/assets/fig-agreement.png" width="100%" alt="Three panels: segmentation agreement per dataset (Dice, F1 and matched IoU, with the Dice threshold of 0.85), nuclei counted by CelloType against the reference, and per-marker intensity correlation.">
 </p>
-<p align="center"><sub>(a) Dice, F1 at IoU ≥ 0.5 and matched IoU per dataset, against the 0.85 threshold. (b) Nuclei detected by CelloType against the reference; the band is ±5 %. (c) Pearson r of per-nucleus mean intensity for each marker, on matched nuclei.</sub></p>
+<p align="center"><sub>(a) Dice, F1 at IoU ≥ 0.5 and matched IoU per dataset; the dashed line is the Dice threshold (0.85; the F1 threshold was 0.70). (b) Nuclei detected by CelloType against the reference; the band is ±5 %. (c) Pearson r of per-nucleus mean intensity for each marker, on matched nuclei.</sub></p>
 
 Every dataset met the thresholds set before the comparison (Dice 0.948 to 0.964, F1 0.942 to
 0.965, count r ≥ 0.991, intensity r ≥ 0.997). This is agreement between two automatic methods,
-not accuracy against manual annotation; on these images Cellpose-SAM was 15 to 37 times slower
-than StarDist. Method, per-dataset results and timing are in
+not accuracy against manual annotation; on these images Cellpose-SAM (on the GPU) was 15 to 37
+times slower than StarDist (on the CPU). Method, per-dataset results and timing are in
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## Documentation
@@ -131,8 +132,10 @@ than StarDist. Method, per-dataset results and timing are in
 
 ## Data and privacy
 
-Images are processed locally and never uploaded. Microscopy images and patient-derived data must
-not be committed to this repository; the `.gitignore` excludes common microscopy formats.
+Images never leave the machine: the browser sends them to the local server, which keeps copies in
+the system temporary folder (`pfcv2_upload_*`) until the operating system clears it. Microscopy
+images and patient-derived data must not be committed to this repository; the `.gitignore`
+excludes common microscopy formats.
 CelloType is research software and is not intended for diagnostic use.
 
 ## Citation

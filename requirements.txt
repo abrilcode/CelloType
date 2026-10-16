@@ -2,14 +2,14 @@
 # Tested with Python 3.12 (Python 3.10 to 3.12 recommended).
 #
 # GPU note:
-#   NVIDIA: install the CUDA build of torch that matches your driver FIRST,
+#   NVIDIA: first install the CUDA build of torch that matches the installed driver,
 #           from https://pytorch.org/get-started/locally/, then run
 #           pip install -r requirements.txt
 #   Apple Silicon: the default torch build uses the GPU (MPS) automatically.
 #   CPU only: it runs, but Cellpose segmentation is slow.
 #
 # Versions this was tested with: numpy 2.5.2, scipy 1.18.1, scikit-image 0.26.0,
-# tifffile 2026.8.23, cellpose 4.2.1.1, torch 2.13.0, pandas 3.0.5.
+# tifffile 2026.8.23, cellpose 4.2.1.1 (default model cpsam_v2), torch 2.13.0, pandas 3.0.5.
 
 # Web server
 fastapi>=0.115

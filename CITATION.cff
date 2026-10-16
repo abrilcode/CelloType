@@ -7,8 +7,9 @@ title: CelloType
 abstract: >-
   Local web application for the segmentation and quantification of
   multichannel fluorescence microscopy images: dataset organisation,
-  Cellpose-SAM segmentation, mask review, per-object measurement on every
-  channel and descriptive analysis in one guided workflow.
+  Cellpose-SAM segmentation (or StarDist for nuclei), mask review, per-object
+  measurement on every channel and descriptive analysis in one guided
+  workflow.
 type: software
 authors:
   - family-names: Herrlein

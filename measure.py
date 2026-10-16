@@ -2,7 +2,7 @@
 Per-object measurement (the "redirect"), with a selectable measurement set
 mirroring ImageJ/Fiji "Set Measurements".
 
-For each segmented object (nucleus / cytoplasm ring / cell) in a label image,
+For each segmented object (nucleus, cell or other object) in a label image,
 measure the requested set on every channel's NATIVE bit depth. Geometry measures
 (area, centroid, perimeter, bbox, fit ellipse, shape, Feret) are per object and
 channel-independent; intensity measures (mean, std, mode, min/max, center of mass,
@@ -17,13 +17,14 @@ import numpy as np
 from scipy import ndimage, stats
 
 # Registry (ordered): key -> (label, category, emitted columns). The order here is
-# also the canonical CSV column order. "geometry" = per object; "intensity" = per channel.
+# also the canonical CSV column order. "geometry" = per object; "intensity" = per channel
+# (stack_position, the channel index, is listed with geometry).
 MEASUREMENTS = {
     "area":               ("Area", "geometry", ["area_px", "area_um2"]),
     "mean":               ("Mean gray value", "intensity", ["mean_intensity"]),
     "std":                ("Standard deviation", "intensity", ["std_intensity"]),
     "mode":               ("Modal gray value", "intensity", ["mode_intensity"]),
-    "minmax":             ("Min & max gray value", "intensity", ["min_intensity", "max_intensity"]),
+    "minmax":             ("Min and max gray value", "intensity", ["min_intensity", "max_intensity"]),
     "centroid":           ("Centroid", "geometry", ["centroid_x", "centroid_y"]),
     "center_of_mass":     ("Center of mass", "intensity", ["com_x", "com_y"]),
     "perimeter":          ("Perimeter", "geometry", ["perimeter", "perimeter_um"]),
@@ -36,7 +37,7 @@ MEASUREMENTS = {
     "median":             ("Median", "intensity", ["median_intensity"]),
     "skewness":           ("Skewness", "intensity", ["skewness"]),
     "kurtosis":           ("Kurtosis", "intensity", ["kurtosis"]),
-    "area_fraction":      ("Area fraction (>Otsu)", "intensity", ["area_fraction_pct"]),
+    "area_fraction":      ("Area fraction (above Otsu)", "intensity", ["area_fraction_pct"]),
     "stack_position":     ("Stack position (channel index)", "geometry", ["stack_position"]),
 }
 
@@ -67,7 +68,7 @@ DEFAULT_MEASUREMENTS = ["area", "centroid", "mean", "integrated_density"]
 #                 Kept only to reproduce earlier results; not offered in the UI.
 BG_METHODS = ("object", "pixel_clip")
 
-# Objects that touch the image border are nuclei or cells cut by the field edge: their area
+# Objects that touch the image border are cut by the field edge: their area
 # and integrated density are low only because part of the object is missing. They are
 # excluded from the results by default (reviewer Pérez, obs. 5); the user can include them.
 EDGE_BAND_PX = 1   # an object is "at the edge" if any of its pixels lies on the outermost row or column
@@ -148,7 +149,7 @@ def measure_field(masks, channels, subtract_bg: bool = False, measurements=None,
     measurements: list of keys from MEASUREMENTS (None -> DEFAULT_MEASUREMENTS).
     Returns tidy rows (object x channel), each carrying object_id, channel, at_edge (1 if
     the object touches the image border) and the selected measure columns (geometry
-    repeated across a channel's rows). Edge objects are flagged here, never dropped.
+    repeated on each channel row of an object). Edge objects are flagged here, never dropped.
 
     subtract_bg: if True, estimate a background B per channel as the median of the
     pixels in bg_mask and correct with bg_method (see BG_METHODS). Default bg_mask:

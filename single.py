@@ -1,5 +1,6 @@
 """
-Single-image flow (Stage 1, simple branch).
+Single-image flow (Stage 1, simple branch). field_channels, field_calibration and
+inspect_single also build each field of the multiple-image flow.
 
 One image = one field. No conditions, no replicates, no grouping across
 images. The user uploads either one multichannel file, or the separate
@@ -142,7 +143,7 @@ def inspect_single(paths: List[str], with_preview: bool = True) -> dict:
             formats.add(img.fmt)
             flags += img.warnings
         if len(dims) > 1:
-            flags.append("The channel files have different dimensions, so they cannot be one image.")
+            flags.append("The channel files have different dimensions, so they cannot be combined into one field.")
             status = "needs_attention"
 
     else:
@@ -151,14 +152,14 @@ def inspect_single(paths: List[str], with_preview: bool = True) -> dict:
             "field": None,
             "rejected": rejected,
             "error": (
-                "For a single image, upload one multichannel file, "
-                "or the separate single-channel files of one field. "
-                "Not multiple multichannel files or a mix."
+                "A single image is one multichannel file or the separate single-channel "
+                "files of one field, not several multichannel files or a mix of both. "
+                "For a dataset, use Multiple images."
             ),
         }
 
     if not quant:
-        flags.append("Display image (8-bit/lossy): intensities are not quantitative.")
+        flags.append("Display image (PNG or JPEG): intensities are not quantitative.")
     if any(i.needs_attention for _, i in loaded):
         status = "needs_attention"
 

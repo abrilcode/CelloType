@@ -13,21 +13,22 @@ made, the final label masks and PNG plots. This page describes each one.
 
 | File | Contents |
 |---|---|
-| `measurements.csv` | One row per object and channel: image, condition and technical replicate (batch), object id, channel, `at_edge`, and the selected measurements. |
-| `<table>_parameters.json` | How the table was produced: input files and planes, segmentation channel, object type, model and settings, size reduction, border rule, mask edits, pixel size, background method and software versions. It states whether the result can be reproduced from the parameters alone (not when masks were edited by hand). |
-| Masks | The final label image as TIFF (single image), or one TIFF per field in a ZIP (batch). |
-| `cells_positive.csv` | Positivity per object and marker (batch), with its own `_parameters.json`. |
-| Plots | PNG figures of the comparison, co-expression and positivity views. |
+| `measurements.csv` | One row per object and channel. Columns: `image`, `object_id`, `channel`, `at_edge` (Single image) or `image`, `condition`, `technical_replicate`, `object_id`, `channel`, `at_edge` (Multiple images), then `background` when background subtraction is on, then the selected measurements. |
+| `measurements_parameters.json` | The parameter record of the table: input files and planes, segmentation channel, object type, model and settings, size reduction, border rule, mask edits, pixel size, background method and software versions. It states whether the result can be reproduced from the parameters alone (not when masks were edited by hand). |
+| `<image>_masks.tif`, `masks.zip` | The final label image as a 16-bit TIFF (32-bit when a label number exceeds 65535): one TIFF for one image, a ZIP with one TIFF per image for several. |
+| `cells_positive.csv` | Positivity per object and marker (Multiple images), with its own parameter record, `cells_positive_parameters.json`. |
+| Plots | PNG figures: `distributions.png` (Single image); `comparison.png`, `scatter.png` and `positivity.png` (Multiple images). |
 
-The "Save to folder" option writes the CSV and its parameter record together into a folder
-chosen in the browser.
+"Save to folder" writes a table and its parameter record together into a folder chosen in the
+browser (Chrome or Edge; in other browsers the Download buttons save each file).
 
 ## Measurements
 
 The measurement set follows ImageJ/Fiji "Set Measurements". Geometry does not depend on the
 channel; intensity measurements are computed on every channel at native bit depth. The table is
 tidy: one row per object and channel, with only the selected columns. Area, centroid, mean
-gray value and integrated density are selected by default.
+gray value and integrated density are selected by default; the Multiple images flow offers the
+full list in its Measure step, and the Single image flow measures these four.
 
 | Measurement | Type | Columns |
 |---|---|---|
@@ -43,28 +44,32 @@ gray value and integrated density are selected by default.
 | Fit ellipse | geometry | `ellipse_major`, `ellipse_minor`, `ellipse_angle`, `ellipse_major_um`, `ellipse_minor_um` |
 | Shape descriptors | geometry | `circularity`, `aspect_ratio`, `roundness`, `solidity` |
 | Feret's diameter (max) | geometry | `feret_max`, `feret_max_um` |
-| Integrated density | intensity | `intden_sum` |
+| Integrated density (sum of pixel values, ImageJ RawIntDen) | intensity | `intden_sum` |
 | Median | intensity | `median_intensity` |
 | Skewness | intensity | `skewness` |
 | Kurtosis | intensity | `kurtosis` |
 | Area fraction (above Otsu) | intensity | `area_fraction_pct` |
-| Stack position (channel index) | geometry | `stack_position` |
+| Stack position (channel index) | per channel | `stack_position` |
 
 ## Units
 
-With a known pixel size (from the CZI, OME or ImageJ metadata, or entered manually when the file
-has none), sizes are also reported in µm and µm², next to the pixel columns. Without one, the µm
-columns are empty. Positions (centroid, center of mass, bounding box) stay in pixels because they
-locate the object in the image. Lengths need square pixels; with non-square pixels only
+With a known pixel size (from the CZI, OME-TIFF or ImageJ TIFF metadata, or entered manually when
+the file has none), sizes are also reported in µm and µm², next to the pixel columns. Without one,
+the µm columns are empty. Positions (centroid, center of mass, bounding box) stay in pixels because
+they locate the object in the image. Lengths need square pixels; with non-square pixels only
 `area_um2` is filled.
 
 ## Border objects
 
-Objects touching the image border are excluded by default and marked with `at_edge` = 1. The rule
-can be changed after segmentation without segmenting again.
+Objects touching the image border (any pixel in the outermost row or column) are excluded by
+default: their rows are left out of the table, plots and positivity, and they stay visible with an
+orange outline. With the rule off they are kept and marked with `at_edge` = 1. The rule can be
+changed after segmentation without segmenting again.
 
 ## Background subtraction
 
-Optional, per channel. The median of the pixels outside every object, beyond a 5 px guard band,
-is subtracted from each object's mean and integrated density, and the subtracted value is written
-in a `background` column. The agreement study used no background subtraction.
+Optional and off by default; estimated per image and channel. The median of the pixels outside
+every object, beyond a 5 px margin around the objects (all pixels outside the objects if the margin
+leaves none), is subtracted from each object's mean and integrated density (area × background),
+without clipping, so values can be negative. The subtracted value is written in a `background`
+column. The agreement study used no background subtraction.

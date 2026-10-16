@@ -1,10 +1,11 @@
 """
 Comparison plots from the per-object measurement rows.
 
-- violin_figure: per-marker (channel) violin of a metric across conditions,
-  optional log2 y, with a points overlay (Maru / Waisman style).
-- positivity: % positive per condition using a control-derived threshold
-  (mean + k*SD of the control), plus a bar chart.
+- comparison_figure: one panel per marker, violin (with an inner box) or box plot of a
+  per-object metric by condition or technical replicate, optional log2 y.
+- scatter_figure: two-marker co-expression, one panel per condition.
+- positivity / positivity_all: % positive per condition with a threshold from the control
+  (mean + k*SD, or a percentile) or a fixed value, plus a bar chart.
 """
 
 from __future__ import annotations
@@ -157,7 +158,7 @@ def comparison_figure(rows, value: str = "mean_intensity", log2: bool = False,
                       focus_condition: str = None, style: str = "violin",
                       palette: str = _DEFAULT_PALETTE) -> str:
     """
-    One panel per marker; a violin (or box) + strip of a per-object metric.
+    One panel per marker; a violin (with an inner box) or a box plot of a per-object metric.
 
     x (what goes on the x-axis of each panel):
       "condition"       -> one group per condition, pooling all its photos (the default).
@@ -194,21 +195,21 @@ def comparison_figure(rows, value: str = "mean_intensity", log2: bool = False,
 
     if x == "photo":
         if not focus_condition:
-            raise ValueError("Choose the condition whose photos you want to compare.")
+            raise ValueError("Choose the condition whose technical replicates are compared.")
         df = df[df["condition"] == str(focus_condition)]
         if df.empty:
             raise ValueError("That condition has no data.")
         xcol, hue = "_photo", None
         order = sorted(df["_photo"].unique(), key=_natkey)
         hue_order = None
-        subtitle = f"{value} by photo in {focus_condition}"
+        subtitle = f"{value} by technical replicate in {focus_condition}"
     elif x == "condition_photo":
         if conditions:
             df = df[df["condition"].isin([str(c) for c in conditions])]
         xcol, hue = "condition", "_photo"
         order = sorted(df["condition"].unique())
         hue_order = sorted(df["_photo"].unique(), key=_natkey)
-        subtitle = f"{value} by condition and photo"
+        subtitle = f"{value} by condition and technical replicate"
     else:  # "condition"
         if conditions:
             df = df[df["condition"].isin([str(c) for c in conditions])]
@@ -257,7 +258,7 @@ def comparison_figure(rows, value: str = "mean_intensity", log2: bool = False,
         leg = ax.get_legend()
         if leg:
             if real_hue and i == n - 1:
-                leg.set_title("photo"); leg.set_frame_on(False)
+                leg.set_title("technical replicate"); leg.set_frame_on(False)
             else:
                 leg.remove()
     fig.tight_layout()
@@ -274,8 +275,7 @@ def scatter_figure(rows, x_channel: str, y_channel: str, value: str = "mean_inte
                    palette: str = _DEFAULT_PALETTE) -> str:
     """
     Co-expression scatter: one panel per condition, each cell a point (x = x_channel,
-    y = y_channel), optional log2 axes and dashed threshold guides. Matches the
-    reference figure's bottom row.
+    y = y_channel), optional log2 axes and dashed threshold guides.
     """
     df = pd.DataFrame(rows)
     if df.empty:
@@ -438,7 +438,7 @@ def positivity_all(rows, control: str = None, rule: str = "mean_ksd", k: float =
     ax.set_xticks(base)
     ax.set_xticklabels(conds, rotation=(30 if any(len(str(c)) > 8 for c in conds) else 0))
     ax.set_ylabel("% positive", fontsize=11)
-    ax.set_title("Positive cells per marker", fontsize=13)
+    ax.set_title("Positive objects per marker", fontsize=13)
     ax.tick_params(labelsize=10)
     leg = ax.legend(frameon=False, fontsize=9, title="marker")
     leg.get_title().set_fontsize(9)
