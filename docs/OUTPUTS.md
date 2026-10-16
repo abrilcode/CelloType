@@ -27,8 +27,8 @@ browser (Chrome or Edge; in other browsers the Download buttons save each file).
 The measurement set follows ImageJ/Fiji "Set Measurements". Geometry does not depend on the
 channel; intensity measurements are computed on every channel at native bit depth. The table is
 tidy: one row per object and channel, with only the selected columns. Area, centroid, mean
-gray value and integrated density are selected by default; the Multiple images flow offers the
-full list in its Measure step, and the Single image flow measures these four.
+gray value and integrated density are selected by default; both flows offer the full list in their
+Measure step.
 
 | Measurement | Type | Columns |
 |---|---|---|
@@ -50,6 +50,13 @@ full list in its Measure step, and the Single image flow measures these four.
 | Kurtosis | intensity | `kurtosis` |
 | Area fraction (above Otsu) | intensity | `area_fraction_pct` |
 | Stack position (channel index) | per channel | `stack_position` |
+
+## Channel names
+
+The `channel` column holds the name of each channel: the name typed in the interface (Channels
+step, or next to each channel in the Segment step of a single image), else the name read from the
+file (CZI metadata, or the marker part of the file name). Two channels cannot share a name. The
+parameter record lists, per image, the name in the file and the name used for every channel.
 
 ## Units
 

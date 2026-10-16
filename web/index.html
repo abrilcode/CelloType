@@ -106,16 +106,7 @@
           </div>
           <div id="msgs"></div>
         </div>
-        <div class="block">
-          <div id="bg-sub-single-wrap" class="hidden">
-            <h3>Measurement options</h3>
-            <div class="optline"><label><input type="checkbox" id="bg-sub-single"> Subtract background</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5 px margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The agreement study used images without background subtraction or any other preprocessing; the option suits only some images, and the same setting has to be used for every image compared, including the controls.</span></span></div>
-            <div class="px-opt"><label class="inline">Pixel size <input type="text" id="px-single" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Read from the file when it carries one (CZI, OME-TIFF, ImageJ TIFF). For images without one, the pixel size from the microscope or a calibration slide can be entered here; it is used only for those images and never replaces a pixel size stored in a file. Sizes are then also given in µm and µm². Pixel columns are always kept, and positions stay in pixels.</span></span></div>
-            <p class="note" id="px-single-note"></p>
-          </div>
-          <div class="actionrow"><button id="measure-btn" class="primary hidden">Measure</button></div>
-          <div class="rowend"><button class="back">Back</button></div>
-        </div>
+        <div class="rowend"><button class="back">Back</button><button id="to-measure-single" class="primary hidden">Continue to Measure</button></div>
       </div>
       <div class="viewer">
         <div id="caption"></div>
@@ -125,6 +116,16 @@
 
     <div id="measure-panel" data-step="measure" class="panel">
       <div class="panel-head"><h2>Measure</h2><span class="ctx-slot"></span><span id="measure-meta" class="meta"></span></div>
+      <div class="block meas-grid" id="bg-sub-single-wrap">
+        <div><h3>Set measurements</h3><div id="meas-set-single"></div></div>
+        <div class="meas-options">
+          <h3>Measurement options</h3>
+            <div class="optline"><label><input type="checkbox" id="bg-sub-single"> Subtract background</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Optional, off by default. Per image and channel, the median of the pixels outside all objects, leaving out a 5 px margin around them, is subtracted from Mean gray value and Integrated density. Other measurements use the original values. Objects dimmer than the background get negative values. The subtracted value is in the background column. The agreement study used images without background subtraction or any other preprocessing; the option suits only some images, and the same setting has to be used for every image compared, including the controls.</span></span></div>
+            <div class="px-opt"><label class="inline">Pixel size <input type="text" id="px-single" inputmode="decimal" size="8" autocomplete="off"> µm per pixel</label><span class="info" tabindex="0" role="button" aria-label="More information"><span class="info-i">i</span><span class="info-tip" role="tooltip">Read from the file when it carries one (CZI, OME-TIFF, ImageJ TIFF). For images without one, the pixel size from the microscope or a calibration slide can be entered here; it is used only for those images and never replaces a pixel size stored in a file. Sizes are then also given in µm and µm². Pixel columns are always kept, and positions stay in pixels.</span></span></div>
+            <p class="note" id="px-single-note"></p>
+        </div>
+      </div>
+      <div class="actionrow"><button id="measure-btn" class="primary">Measure</button></div>
       <div id="measure-out"></div>
       <div class="rowend">
         <button class="back">Back</button>
@@ -752,7 +753,6 @@ function handle(data, skipped) {
   FIELD = data.field;
   SINGLE_TOKEN = data.token || null;
   SEG_OVERLAY = null;
-  $("#uploader").classList.add("hidden");
   $("#workspace").classList.remove("hidden");
   buildControls(FIELD, data.rejected, skipped);
   setView(FIELD.composite ? "original" : `ch-${FIELD.channels[0].id}`);
@@ -802,9 +802,9 @@ function buildControls(f, rejected, skipped) {
     });
   });
 
-  // Cellpose speed depends on GPU vs CPU; only worth a line when there is no GPU.
-  $("#seg-note").textContent = GPU_OK ? "" :
-    "No GPU found: Cellpose-SAM runs on the CPU, which is slow. A machine with an Apple Silicon or NVIDIA GPU, or a cloud GPU, is much faster.";
+  // Cellpose-SAM speed depends on GPU vs CPU; only worth a line when there is no GPU.
+  updateSegNote();
+  document.querySelectorAll('input[name="segengine-single"]').forEach(r => r.addEventListener("change", updateSegNote));
 
   // Editing = the web mask editor (web/editor.js). Hidden until a segmentation exists.
   $("#edit-seg").classList.add("hidden");
@@ -823,20 +823,24 @@ function buildControls(f, rejected, skipped) {
     })).catch(e => alert("Editor error: " + e));
   };
 
-  // Measure (hidden until a segmentation exists)
-  $("#measure-btn").classList.add("hidden");
-  $("#bg-sub-single-wrap").classList.add("hidden");
+  // Measure step: the same Set measurements list as the multiple-image flow
+  $("#meas-set-single").innerHTML = measChecklist();
+  $("#to-measure-single").classList.add("hidden");
   pixelSizeNote(f.pixel_size);
   $("#measure-out").innerHTML = "";
   $("#measure-meta").textContent = "";
   $("#single-plot-out").innerHTML = "";
   document.querySelectorAll("#single .ctx-slot").forEach(b => { b.innerHTML = ""; });
   $("#to-plot").classList.add("hidden");
+  $("#to-measure-single").onclick = () => { Flow.enable("measure"); Flow.go("measure"); };
   $("#measure-btn").onclick = async () => {
     if (!SINGLE_TOKEN) return;
-    Flow.enable("measure"); Flow.go("measure");
+    const sel = [...document.querySelectorAll("#meas-set-single .measopt:checked")].map(c => c.value);
+    if (!sel.length) { $("#measure-out").innerHTML = `<p class="flag">Choose at least one measurement.</p>`; return; }
     $("#measure-out").innerHTML = loadingHTML("Measuring every channel inside each object");
     const fd = new FormData(); fd.append("token", SINGLE_TOKEN);
+    fd.append("measurements", JSON.stringify(sel));
+    fd.append("channel_names", JSON.stringify(singleChannelNames()));
     fd.append("subtract_bg", $("#bg-sub-single").checked ? "true" : "false");
     fd.append("pixel_size_um", $("#px-single").disabled ? "" : $("#px-single").value.trim());
     fd.append("exclude_edge", $("#edge-single").checked ? "true" : "false");
@@ -865,7 +869,7 @@ function buildControls(f, rejected, skipped) {
 
   // Objects decide whether StarDist can be chosen
   document.querySelectorAll('input[name="segobj-single"]').forEach(r =>
-    r.onchange = () => syncEngine("segengine-single", singleObjects() === "nuclei"));
+    r.onchange = () => { syncEngine("segengine-single", singleObjects() === "nuclei"); updateSegNote(); });
   syncEngine("segengine-single", singleObjects() === "nuclei");
 
   // Segment selection enables the primary action
@@ -897,10 +901,12 @@ function buildControls(f, rejected, skipped) {
       addSegView(r.count);
       setView("segmentation");
       $("#edit-seg").classList.remove("hidden");
-      $("#measure-btn").classList.remove("hidden");
-      $("#bg-sub-single-wrap").classList.remove("hidden");
+      $("#to-measure-single").classList.remove("hidden");
+      Flow.enable("measure");
+      $("#measure-out").innerHTML = ""; $("#measure-meta").textContent = "";
+      $("#single-plot-out").innerHTML = ""; $("#to-plot").classList.add("hidden");
       const chName = $(`#mk-${sel.value}`) ? $(`#mk-${sel.value}`).value : `Channel ${Number(sel.dataset.i) + 1}`;
-      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)} with ${esc(ENGINE_LABEL[r.engine] || "Cellpose-SAM")}, ${esc(r.device || "")}, ${secs}. ${edgeLine(r.edge)}</div>`
+      $("#msgs").innerHTML = `<div class="result-box">${r.count} objects on ${esc(chName)} with ${esc(ENGINE_LABEL[r.engine] || "Cellpose-SAM")} on ${esc(deviceLabel(r.device))}, ${secs}. ${edgeLine(r.edge)}</div>`
         + (r.downscale && r.downscale.note ? `<div class="flag">${esc(r.downscale.note)}</div>` : "");
       singleCtx(r.count, chName);
     } catch (e) {
@@ -979,14 +985,33 @@ function syncEngine(name, nucleiOnly) {
 function singleObjects() {
   return (document.querySelector('input[name="segobj-single"]:checked') || {}).value || "nuclei";
 }
+// names typed for each channel of the single image, by channel index ("" keeps the file's name)
+function singleChannelNames() {
+  const out = [];
+  (FIELD ? FIELD.channels : []).forEach(c => { const el = $(`#mk-${c.id}`); out[c.id] = el ? el.value.trim() : ""; });
+  return Array.from(out, v => v || "");
+}
+// "mps" -> "GPU MPS", "cuda:0" -> "GPU CUDA", "gpu" (StarDist) -> "GPU", "cpu" -> "CPU"
+function deviceLabel(d) {
+  d = String(d || "").toLowerCase();
+  if (!d) return "this machine";
+  if (d === "cpu") return "CPU";
+  if (d === "gpu") return "GPU";
+  return "GPU " + d.replace(/:\d+$/, "").toUpperCase();
+}
+function updateSegNote() {
+  const eng = (document.querySelector('input[name="segengine-single"]:checked') || {}).value || "cellpose";
+  const n = $("#seg-note"); if (!n) return;
+  n.textContent = (!GPU_OK && eng === "cellpose")
+    ? "No GPU found: Cellpose-SAM runs on the CPU, which is slow. A machine with an Apple Silicon or NVIDIA GPU, or a cloud GPU, is much faster." : "";
+}
 let SEG_CHANNEL = null;      // channel index segmented in every image
-let CELL_CHANNEL = null;     // cytoplasm/membrane channel index (only used in "cells" mode)
 let MEAS_OPTIONS = null;     // the Set Measurements list (fetched from the backend)
 let MEAS_SEL = null;         // measurement keys the user chose (read at Measure time)
 let RESULT_TOKEN = null;     // server-side handle for the measured rows (plots reuse them)
 
 function mToUploader() {
-  BFIELDS = []; CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_ENGINE = "cellpose"; SEG_CHANNEL = null; CELL_CHANNEL = null; BSEG = [];
+  BFIELDS = []; CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_ENGINE = "cellpose"; SEG_CHANNEL = null; BSEG = [];
   RESULT_TOKEN = null;
   $("#mworkspace").classList.add("hidden");
   $("#muploader").classList.remove("hidden");
@@ -1182,7 +1207,7 @@ $("#mgo").addEventListener("click", async () => {
 function renderBatch(data, skipped) {
   BFIELDS = data.fields || [];
   BTOKEN = data.token || null;
-  CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_ENGINE = "cellpose"; SEG_CHANNEL = null; CELL_CHANNEL = null;
+  CHANNEL_LABELS = null; SEG_MODE = "nuclei"; SEG_ENGINE = "cellpose"; SEG_CHANNEL = null;
   BSEG = [];                                   // drop any segmentation from a previous dataset
   BFIELDS.forEach(f => f.__token = data.token || null);   // each field remembers its session
   if (!BFIELDS.length) {
@@ -1217,7 +1242,7 @@ function renderTable() {
   let rows = `<div class="tablewrap"><table class="batch"><thead><tr>
     <th style="width:28px"><input type="checkbox" id="selall" title="Select all"></th>
     <th></th><th>Image</th><th>Condition</th><th>Technical replicate</th>
-    <th>Control</th><th>Channels</th>${hasNotes ? "<th>Notes</th>" : ""}<th></th></tr></thead><tbody>`;
+    <th>Control${infoTip("Marks the control condition, for example the secondary-only control. Positivity uses it as the default control.")}</th><th>Channels</th>${hasNotes ? "<th>Notes</th>" : ""}<th></th></tr></thead><tbody>`;
   BFIELDS.forEach((f, i) => {
     const markers = f.channels.map(c => esc(c.name)).join(", ");
     const notes = (f.status === "ok" ? "" : (f.flags || []).map(x => `<div class="flag">${esc(x)}</div>`).join(""));
@@ -1388,7 +1413,7 @@ function renderSegmentPanel() {
   p.innerHTML = `<div class="work-grid"><div class="work-left">
     <div class="panel-head"><h2>Segment</h2></div>
     <div class="block seg-status">
-    <p class="note">Segmenting with <b>${SEG_ENGINE === "stardist" ? "StarDist" : "Cellpose-SAM"}</b>${SEG_ENGINE === "stardist" ? " (2D_versatile_fluo)" : (DEVICE_LABEL ? ", on " + DEVICE_LABEL : "")}.</p>
+    <p class="note" id="seg-engine-note"><span class="seg-verb">Segmenting</span> with <b>${SEG_ENGINE === "stardist" ? "StarDist" : "Cellpose-SAM"}</b>${SEG_ENGINE === "stardist" ? " (2D_versatile_fluo)" : (DEVICE_LABEL ? ", on " + DEVICE_LABEL : "")}.</p>
     <div class="loading" id="segbar-wrap"><span class="prog run" id="segbar"><i></i></span>
       <span id="segprogress" class="meta"></span></div>
     <div class="edge-opt"><label><input type="checkbox" id="edge-batch-after" ${EDGE_EXCLUDE ? "checked" : ""}> Exclude objects touching the image border</label>${infoTip("Changing this redraws every image; no new segmentation is run.")}</div></div>
@@ -1490,6 +1515,7 @@ async function segmentAllBatch() {
   $("#segprogress").innerHTML = `${BSEG.length} / ${N} images &middot; ${total} objects &middot; ${fmtSecs((performance.now() - t0) / 1000)}`
     + (reduced.length ? `<div class="flag">${reduced.length} of ${BSEG.length} images: ${esc(reduced[0].downscale.note)}</div>` : "");
   segBar(N, N, false);
+  { const v = document.querySelector("#seg-engine-note .seg-verb"); if (v) v.textContent = "Segmented"; }
   btn.disabled = false;
   const cont = $("#to-measure"); if (cont) cont.classList.remove("hidden");
 }
@@ -1575,6 +1601,7 @@ function renderMeasurePanel() {
     fd.append("pixel_size_um", $("#px-batch") ? $("#px-batch").value.trim() : "");
     fd.append("exclude_edge", EDGE_EXCLUDE ? "true" : "false");
     fd.append("measurements", JSON.stringify(MEAS_SEL));
+    fd.append("channel_names", JSON.stringify(CHANNEL_LABELS || []));
     const r = await (await fetch("/api/batch/measure", { method: "POST", body: fd })).json();
     if (r.error) { $("#measure-out-batch").innerHTML = `<p class="flag">${esc(r.error)}</p>`; return; }
     RESULT_TOKEN = r.result_token || null;
@@ -1597,6 +1624,8 @@ function buildCompareUI(channels, conditions, metrics) {
   const checks = (cls, arr, on) => arr.map(v =>
     `<label><input type="checkbox" class="${cls}" value="${esc(v)}" ${on(v) ? "checked" : ""}> ${esc(v)}</label>`).join("");
   const isNuc = (m) => /dapi|hoechst|nucle/i.test(m);
+  // the condition marked Control on Raw data is the default control for positivity
+  const ctrlDefault = (BSEG.find(s => s.control && conditions.includes(s.condition)) || {}).condition;
   const mkOn = channels.some(m => !isNuc(m)) ? (m) => !isNuc(m) : () => true;
 
   box.innerHTML = `
@@ -1662,7 +1691,7 @@ function buildCompareUI(channels, conditions, metrics) {
             <option value="percentile">Percentile of control</option>
             <option value="absolute">Absolute value</option>
           </select></label>
-          <label id="pos-ctrl-wrap">Control condition <select id="pos-ctrl">${opt(conditions)}</select></label>
+          <label id="pos-ctrl-wrap">Control condition <select id="pos-ctrl">${conditions.map(c => `<option ${c === ctrlDefault ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
           <label id="pos-k-wrap">SD multiplier <span class="nocase">k</span> <input type="number" id="pos-k" value="2" step="0.5"></label>
           <label id="pos-pct-wrap">Percentile <input type="number" id="pos-pct" value="99" step="1" min="50" max="100"></label>
           <label id="pos-abs-wrap">Threshold value <input type="number" id="pos-abs"></label>
@@ -1838,7 +1867,8 @@ function buildCompareUI(channels, conditions, metrics) {
 // load the Set Measurements options once
 fetch("/api/measurements").then(r => r.json()).then(d => {
   MEAS_OPTIONS = d.measurements || [];
-  if (BSEG.length && !document.querySelector(".measopt")) renderMeasurePanel();
+  if (BSEG.length && !document.querySelector("#meas-set .measopt")) renderMeasurePanel();
+  const ms = $("#meas-set-single"); if (ms && FIELD && !ms.querySelector(".measopt")) ms.innerHTML = measChecklist();
 }).catch(() => {});
 
 // Cellpose speed depends on GPU vs CPU. Shown once, in the header.
@@ -1852,6 +1882,7 @@ fetch("/api/device").then(r => r.json()).then(d => {
   chip.title = d.gpu ? "Cellpose-SAM runs on the GPU" : "No GPU found: Cellpose-SAM runs on the CPU, which is slow.";
   STARDIST_OK = !!d.stardist;
   syncEngine("segengine-single", singleObjects() === "nuclei");
+  updateSegNote();
   if (document.querySelector('input[name="segengine"]')) SEG_ENGINE = syncEngine("segengine", SEG_MODE !== "cells");
 }).catch(() => {});
 

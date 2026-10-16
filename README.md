@@ -37,8 +37,8 @@ Mechanical steps are automated; experimental decisions stay with the researcher 
 next to the results.
 
 - **Input.** CZI, TIFF and PNG/JPEG, read at native bit depth (PNG and JPEG are flagged as not
-  quantitative); channel names from the CZI metadata or the file names, pixel size from CZI,
-  OME-TIFF or ImageJ TIFF metadata.
+  quantitative); channel names from the CZI metadata or the file names, editable in the
+  interface; pixel size from CZI, OME-TIFF or ImageJ TIFF metadata.
 - **Segmentation.** Cellpose-SAM for nuclei, cells or other objects on any channel, on CUDA or
   Apple Silicon GPUs with a CPU fallback; optional StarDist for nuclei.
 - **Review.** Every mask can be inspected and edited in the browser before measurement.
