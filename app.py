@@ -32,8 +32,35 @@ from organize import organize
 from single import inspect_single, field_channels, field_calibration
 
 
+def _channel_names(raw: str):
+    """Channel names typed in the interface: a JSON list by channel index ("" keeps the name read
+    from the file). Returns (names or None, error response or None)."""
+    if not (raw or "").strip():
+        return None, None
+    try:
+        names = json.loads(raw)
+        if not isinstance(names, list):
+            raise ValueError
+    except Exception:
+        return None, JSONResponse({"error": "The channel names could not be read."}, status_code=400)
+    return [("" if n is None else str(n).strip()) for n in names], None
+
+
+def _rename_channels(channels, names):
+    """Apply the typed names to the (name, array) channels of one image, so tables, plots and the
+    record use them. Returns (channels, per-channel record, error message or None)."""
+    used = [(names[i] if names and i < len(names) and names[i] else n) for i, (n, _a) in enumerate(channels)]
+    if names:
+        dup = sorted({u for u in used if used.count(u) > 1})
+        if dup:
+            return None, None, f"Two channels have the same name ({', '.join(dup)}). Each channel needs its own name."
+    rec = [{"index": i, "name_in_file": n, "name_used": u} for i, ((n, _a), u) in enumerate(zip(channels, used))]
+    return [(u, a) for u, (_n, a) in zip(used, channels)], rec, None
+
+
 def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="object", bg_infos=None,
-                   exclude_edge=None, edge_infos=None, processed=None, manual_px=None, cal_infos=None):
+                   exclude_edge=None, edge_infos=None, processed=None, manual_px=None, cal_infos=None,
+                   channel_names=None):
     """Measure a list of {token, image, condition, replicate} into tidy rows (one row
     per segmented object per channel). measurements selects the set (None -> basics).
     The background (when subtract_bg) is estimated per image and channel; if bg_infos is
@@ -41,13 +68,16 @@ def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="obj
     Objects touching the image border are dropped when exclude_edge is True (None = use each
     image's own setting); they still count as objects for the background estimate.
     The pixel size comes from each image's metadata, else from manual_px (see _calibration);
-    if cal_infos is a list, one {image, x, y, source} entry per image is appended."""
+    if cal_infos is a list, one {image, x, y, source} entry per image is appended.
+    channel_names (list by channel index) renames the channels; a clash raises ValueError."""
     allrows = []
     for it in entries:
         session = _SINGLE_SESSIONS.get(it.get("token"))
         if not session or session.get("masks") is None:
             continue
-        channels = field_channels(session["paths"])
+        channels, ch_rec, msg = _rename_channels(field_channels(session["paths"]), channel_names)
+        if msg:
+            raise ValueError(msg)
         info = {}
         cal = _calibration(session, manual_px)
         rows = measure.measure_field(session["masks"], channels,
@@ -62,7 +92,7 @@ def _measure_items(entries, subtract_bg=False, measurements=None, bg_method="obj
         if edge_infos is not None:
             edge_infos.append(e_info)
         if processed is not None:
-            processed.append((it, session, info or None, e_info, cal))
+            processed.append((it, session, info or None, e_info, cal, ch_rec))
         if exc:
             rows = [r for r in rows if not r.get("at_edge")]
         for r in rows:
@@ -342,10 +372,14 @@ async def single_commit(token: str = Form(...), idmap: str = Form(...)):
 @app.post("/api/single/measure")
 async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"),
                          measurements: str = Form(""), bg_method: str = Form("object"),
-                         exclude_edge: str = Form(""), pixel_size_um: str = Form("")):
+                         exclude_edge: str = Form(""), pixel_size_um: str = Form(""),
+                         channel_names: str = Form("")):
     session = _SINGLE_SESSIONS.get(token)
     if not session or session.get("masks") is None:
         return JSONResponse({"error": "Segment first, then measure."}, status_code=410)
+    names, err = _channel_names(channel_names)
+    if err:
+        return err
     bg_on, bg_method, err = _bg_params(subtract_bg, bg_method)
     if err:
         return err
@@ -353,7 +387,9 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
     if err:
         return err
     sel = json.loads(measurements) if measurements.strip() else None
-    channels = field_channels(session["paths"])
+    channels, ch_rec, msg = _rename_channels(field_channels(session["paths"]), names)
+    if msg:
+        return JSONResponse({"error": msg}, status_code=400)
     info = {}
     cal = _calibration(session, manual_px)
     rows = measure.measure_field(session["masks"], channels, subtract_bg=bg_on, measurements=sel,
@@ -374,7 +410,7 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
     cols = ["image", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     fields = [runlog.field_record(image, session, background=(bg_infos[0] if bg_infos else None),
-                                  edge=edge_infos[0], calibration=cal)]
+                                  edge=edge_infos[0], calibration=cal, channel_names=ch_rec)]
     record = runlog.build_record("single", fields, sel or measure.DEFAULT_MEASUREMENTS, cols, bg_on, bg_method,
                                  len(rows), session.get("seg_info") or {}, "measurements.csv",
                                  manual_pixel_size_um=manual_px)
@@ -399,20 +435,27 @@ async def single_measure(token: str = Form(...), subtract_bg: str = Form("false"
 @app.post("/api/batch/measure")
 async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false"),
                         measurements: str = Form(""), bg_method: str = Form("object"),
-                        exclude_edge: str = Form(""), pixel_size_um: str = Form("")):
-    # items = JSON list of {token, image, condition, replicate}
+                        exclude_edge: str = Form(""), pixel_size_um: str = Form(""),
+                        channel_names: str = Form("")):
+    # items = JSON list of {token, image, condition, replicate}; channel_names = JSON list by channel index
     bg_on, bg_method, err = _bg_params(subtract_bg, bg_method)
     if err:
         return err
     manual_px, err = _pixel_size_param(pixel_size_um)
     if err:
         return err
+    names, err = _channel_names(channel_names)
+    if err:
+        return err
     sel = json.loads(measurements) if measurements.strip() else None
     bg_infos, edge_infos, processed, cal_infos = [], [], [], []
     exc = _flag(exclude_edge) if exclude_edge.strip() else None
-    allrows = _measure_items(json.loads(items), subtract_bg=bg_on, measurements=sel, bg_method=bg_method,
-                             bg_infos=bg_infos, exclude_edge=exc, edge_infos=edge_infos, processed=processed,
-                             manual_px=manual_px, cal_infos=cal_infos)
+    try:
+        allrows = _measure_items(json.loads(items), subtract_bg=bg_on, measurements=sel, bg_method=bg_method,
+                                 bg_infos=bg_infos, exclude_edge=exc, edge_infos=edge_infos, processed=processed,
+                                 manual_px=manual_px, cal_infos=cal_infos, channel_names=names)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
     if not allrows:
         return JSONResponse({"error": "No measurements. Segment the images, then measure them (the session may have expired)."}, status_code=400)
     chans = list(dict.fromkeys(r["channel"] for r in allrows))
@@ -420,8 +463,9 @@ async def batch_measure(items: str = Form(...), subtract_bg: str = Form("false")
     cols = ["image", "condition", "technical_replicate", "object_id", "channel", "at_edge"] + measure.columns_for(sel, background=bg_on)
     rtok = uuid.uuid4().hex
     fields = [runlog.field_record(it.get("image", ""), ses, condition=(it.get("condition") or None),
-                                  technical_replicate=it.get("replicate"), background=bgi, edge=edi, calibration=cal)
-              for it, ses, bgi, edi, cal in processed]
+                                  technical_replicate=it.get("replicate"), background=bgi, edge=edi, calibration=cal,
+                                  channel_names=chn)
+              for it, ses, bgi, edi, cal, chn in processed]
     record = runlog.build_record("batch", fields, sel or measure.DEFAULT_MEASUREMENTS, cols, bg_on, bg_method,
                                  len(allrows), (processed[0][1].get("seg_info") or {}) if processed else {},
                                  "measurements.csv", manual_pixel_size_um=manual_px)

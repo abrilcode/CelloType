@@ -17,12 +17,13 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-SCHEMA_VERSION = "1.5"   # 1.1: pixel size (P-03a/b), manual_pixel_size_um; 1.2: input planes (P-04a); 1.3: downscale_method (S-05); 1.4: technical_replicate (P-06a); 1.5: engine choice (StarDist)
+SCHEMA_VERSION = "1.6"   # 1.1: pixel size (P-03a/b), manual_pixel_size_um; 1.2: input planes (P-04a); 1.3: downscale_method (S-05); 1.4: technical_replicate (P-06a); 1.5: engine choice (StarDist); 1.6: channel_names per field (names typed in the interface), StarDist package versions
 APP_NAME = "CelloType"
 APP_VERSION = "2026.10-post-review"
 NOT_REPRODUCIBLE_NOTE = "Masks were edited manually; this run cannot be reproduced from these parameters alone."
 
-_PACKAGES = ("cellpose", "torch", "numpy", "scipy", "scikit-image", "aicspylibczi", "tifffile", "fastapi")
+_PACKAGES = ("cellpose", "torch", "numpy", "scipy", "scikit-image", "aicspylibczi", "tifffile", "fastapi",
+             "stardist", "tensorflow", "csbdeep")   # optional ones are null when not installed
 _SOFTWARE = None
 
 
@@ -93,8 +94,9 @@ def edit_stats(auto_masks, final_masks) -> dict:
 
 
 def field_record(image: str, session: dict, condition=None, technical_replicate=None, background=None, edge=None,
-                 calibration=None) -> dict:
-    """Per-image block of the record, from a segmentation session."""
+                 calibration=None, channel_names=None) -> dict:
+    """Per-image block of the record, from a segmentation session. channel_names = one
+    {index, name_in_file, name_used} per channel (names typed in the interface replace the file's)."""
     seg = session.get("seg_info") or {}
     masks = session.get("masks")
     auto = session.get("auto_masks")
@@ -103,6 +105,10 @@ def field_record(image: str, session: dict, condition=None, technical_replicate=
     paths = session.get("paths") or []
     n_final = int(np.count_nonzero(np.unique(np.asarray(masks)) > 0)) if masks is not None else None
     bg = background or {}
+    seg_name = seg.get("channel_name")
+    ci = session.get("seg_channel")
+    if channel_names and ci is not None and 0 <= ci < len(channel_names):
+        seg_name = channel_names[ci]["name_used"]
     return {
         "image": image,
         "input_files": [os.path.basename(p) for p in paths],
@@ -113,7 +119,8 @@ def field_record(image: str, session: dict, condition=None, technical_replicate=
         "downscale_factor": seg.get("downscale_factor"),
         "downscale_method": seg.get("downscale_method"),
         "segmentation_channel_index": session.get("seg_channel"),
-        "segmentation_channel_name": seg.get("channel_name"),
+        "segmentation_channel_name": seg_name,
+        "channel_names": (list(channel_names) if channel_names else None),
         "object_type": session.get("seg_type"),
         "diameter_px": seg.get("diameter"),
         "segmented_at": seg.get("segmented_at"),

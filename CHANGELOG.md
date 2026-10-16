@@ -49,6 +49,18 @@ the reviewers' observations; each links to its pull request.
   ([#13](https://github.com/abrilcode/CelloType/pull/13)); workflow sidebar layout
   ([#14](https://github.com/abrilcode/CelloType/pull/14)).
 
+### Fixed
+
+- Channel names typed in the interface now reach the table, the plots, positivity and the
+  parameter record; before, they only relabelled the viewer. Two channels cannot share a name.
+  The record (schema 1.6) lists the name in the file and the name used for each channel, and the
+  StarDist, TensorFlow and csbdeep versions.
+- The Single image flow has its own Measure step with the Set measurements list; before, it
+  always measured the four default measurements.
+- The Raw data step of a single image showed an empty page after loading; it now shows the loaded
+  files.
+- Positivity starts with the condition marked Control as the control condition.
+
 ### Removed
 
 - An unused file-saving endpoint, an unused import and an unused dependency (`fpdf2`).
